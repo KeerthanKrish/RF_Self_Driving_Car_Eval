@@ -141,6 +141,20 @@ That first line matters: a non-interactive `ssh host 'command'` does not source 
 `conda` will appear missing unless the profile script is sourced explicitly. Any script or
 automation that runs over ssh needs it.
 
+**Installed and verified 2026-09-10** (`bash scripts/verify_env.sh` → `ALL CHECKS PASSED`):
+
+| Package | Version |
+|---|---|
+| python | 3.11.16 |
+| torch | 2.11.0+cu128 (CUDA 12.8) |
+| gymnasium | 1.3.0 |
+| highway-env | 1.12.1 |
+| stable-baselines3 | 2.9.0 |
+| numpy | 2.4.6 |
+
+Also verified: `sm_120` present in `torch.cuda.get_arch_list()`, a real GPU matmul executes, and
+`highway-v0` constructs and steps with observation shape `(5, 5)` and action space `Discrete(5)`.
+
 ## An honest note on the GPU
 
 For the early phases the GPU is close to useless, and this is expected rather than a

@@ -1,7 +1,8 @@
 # Technical Design
 
-**Status**: proposed — API specifics marked "confirm" are to be verified against the pinned
-version at install time rather than trusted from memory
+**Status**: proposed. Pinned versions are now installed and verified — highway-env 1.12.1,
+gymnasium 1.3.0, torch 2.11.0+cu128, SB3 2.9.0. Items still marked "confirm" are ones not yet
+read directly from the installed source.
 **Last updated**: 2026-09-10
 
 Covers the concrete decisions: which simulator, what the car actually is, what the agent sees and
@@ -102,7 +103,7 @@ Deliberately staged, because each representation teaches something different.
 
 | Phase | Observation | Shape | What it teaches |
 |---|---|---|---|
-| 1 | `Kinematics` | V×F, default 5 vehicles × 5 features, flattened to ~25 | The MDP loop with a small, fully-visible state. No perception problem. |
+| 1 | `Kinematics` | **Verified `(5, 5)`** — 5 vehicles × 5 features, flattens to 25 | The MDP loop with a small, fully-visible state. No perception problem. |
 | 2 | `Kinematics` + explicit capability features | ~25 + n | How state design changes what is learnable — e.g. adding signal phase |
 | 3 | `OccupancyGrid` | grid × channels | Spatial representation, CNN encoders, why structure in the input matters |
 | 4 (optional) | `GrayscaleObservation` | stacked frames | Representation learning; the VAE-then-RL pattern from `research/12` |
@@ -124,7 +125,7 @@ hiding.
 
 | Phase | Action type | Space | Why |
 |---|---|---|---|
-| 1–2 | `DiscreteMetaAction` | 5 discrete: `LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER` | Enables value-based methods (DQN family). Simple credit assignment. |
+| 1–2 | `DiscreteMetaAction` | **Verified `Discrete(5)`**: `LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER` | Enables value-based methods (DQN family). Simple credit assignment. |
 | 3+ | `ContinuousAction` | `[acceleration, steering]`, each in `[-1, 1]` | Enables policy-gradient and actor-critic methods (PPO, SAC). |
 
 **The distinction that matters pedagogically**: under `DiscreteMetaAction`, highway-env runs its
