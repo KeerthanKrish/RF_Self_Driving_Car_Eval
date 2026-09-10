@@ -28,6 +28,22 @@ conda activate "${ENV_NAME}"
 echo "[setup] active env: ${CONDA_DEFAULT_ENV}"
 echo "[setup] python: $(python --version), at $(which python)"
 
+# Hard guard. This machine is shared and other projects have their own torch
+# builds (env_isaaclab, lerobot). Abort rather than risk installing into the
+# wrong environment, base, or user site-packages.
+EXPECTED_PY="${HOME}/miniforge3/envs/${ENV_NAME}/bin/python"
+ACTUAL_PY="$(which python)"
+if [[ "${CONDA_DEFAULT_ENV}" != "${ENV_NAME}" || "${ACTUAL_PY}" != "${EXPECTED_PY}" ]]; then
+    echo "[setup] ABORT: wrong environment active." >&2
+    echo "        expected env '${ENV_NAME}' at ${EXPECTED_PY}" >&2
+    echo "        got      env '${CONDA_DEFAULT_ENV}' at ${ACTUAL_PY}" >&2
+    exit 1
+fi
+echo "[setup] isolation guard passed"
+
+# Never --user, never sudo: both would escape the environment.
+export PIP_USER=0
+
 echo "[setup] installing pytorch from ${TORCH_INDEX}"
 pip install --upgrade pip
 pip install torch --index-url "${TORCH_INDEX}"

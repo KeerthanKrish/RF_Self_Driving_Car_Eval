@@ -213,3 +213,21 @@ of use.
 **Consequence**: `verify_env.sh` asserts `sm_120` is in `torch.cuda.get_arch_list()` **and**
 runs a real GPU matmul, because `torch.cuda.is_available()` returns `True` even when no
 compatible kernels exist and is therefore not a valid check.
+
+---
+
+### D-017 — Environment isolation is enforced by an assertion, not by care
+**Date**: 2026-09-10
+**Decision**: `scripts/setup_env.sh` aborts before any `pip install` unless
+`CONDA_DEFAULT_ENV == rlsdc` **and** `which python` resolves to
+`~/miniforge3/envs/rlsdc/bin/python`. It also exports `PIP_USER=0`.
+**Rationale**: Raised directly as a concern — other projects on this machine have their own torch
+builds and must not be disturbed. A convention that depends on remembering to activate the right
+environment is not a safeguard; an assertion that fails loudly is.
+**Verified at the time of raising**: `base` had no torch, `env_isaaclab` 2.7.0+cu128, `lerobot`
+2.11.0+cu130, `rlsdc` 2.11.0+cu128, `~/.local` and system Python both free of torch. Because the
+other environments hold *different* versions than this project's, a leak would show up as a
+version match rather than needing to be inferred — none was present.
+**Standing rule**: this applies to every install, not just torch. Nothing is installed outside
+`rlsdc`. No `sudo pip`, no `pip --user`, no changes to `base` or another project's environment.
+An audit command is in `docs/01_infrastructure_and_workflow.md`.

@@ -97,6 +97,38 @@ environment.
 - GPU work should be considerate: other projects may be using the card. Check `nvidia-smi` before
   launching anything long, and prefer to leave headroom rather than claim all memory.
 
+### The isolation guarantee, and how to check it
+
+Other projects on this machine have their own, different torch builds. As of 2026-09-10:
+
+| Env | torch | Python |
+|---|---|---|
+| `base` | none | — |
+| `env_isaaclab` | 2.7.0+cu128 | 3.11 |
+| `lerobot` | 2.11.0+cu130 | 3.12 |
+| **`rlsdc`** (this project) | **2.11.0+cu128** | **3.11** |
+
+Each has a physically separate `site-packages`, so these coexist without interacting. **Nothing
+this project installs may change any row but its own.**
+
+`scripts/setup_env.sh` enforces this rather than relying on care: before any `pip install` it
+asserts that `CONDA_DEFAULT_ENV` is `rlsdc` *and* that `which python` resolves to
+`~/miniforge3/envs/rlsdc/bin/python`, aborting otherwise. It also sets `PIP_USER=0` so a stray
+`--user` cannot escape into `~/.local`.
+
+To audit isolation at any time — read-only, touches nothing:
+
+```bash
+for e in base env_isaaclab lerobot rlsdc; do
+  p=~/miniforge3/envs/$e/bin/python; [ "$e" = base ] && p=~/miniforge3/bin/python
+  echo "$e: $("$p" -c 'import torch;print(torch.__version__, torch.__file__)' 2>/dev/null || echo 'no torch')"
+done
+ls ~/.local/lib/python*/site-packages 2>/dev/null | grep -i '^torch' || echo "~/.local clean"
+```
+
+The useful property: because the other environments hold *different* versions than this one, any
+leak would be immediately visible as a version match rather than having to be inferred.
+
 **The convention**: one conda environment named `rlsdc`, created under miniforge3. Verified that
 no environment by that name exists, so there is no collision with `env_isaaclab` or `lerobot`.
 
