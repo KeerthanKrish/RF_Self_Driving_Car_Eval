@@ -1,5 +1,15 @@
 # Self-Driving Car RL: Research Overview
 
+> **Scope note added 2026-09-10.** This dossier was compiled *before* the project's scope was
+> set, and assumes the objective is a good driving agent. The actual objective is **learning RL**,
+> with the driving task as the teaching device, in simulation only, with algorithms implemented
+> by hand. Several recommendations here — most notably "use Stable-Baselines3 rather than
+> implementing algorithms yourself" — are therefore wrong for this project.
+>
+> The facts remain accurate and this dossier is still the reference for them. But read
+> [`../docs/00_project_charter.md`](../docs/00_project_charter.md) first; it tabulates exactly
+> where the two diverge. The current project plan lives in [`../docs/`](../docs/).
+
 This is a research dossier for a brand-new side project: training a self-driving car agent with reinforcement learning inside a simulated city/urban environment. No design decisions have been made yet — this folder is meant to give you the full lay of the land (simulators, algorithms, environment-design levers, reward design, known pitfalls, and a tiered recommendation) so you can make those decisions deliberately rather than by default.
 
 This is a **research and planning phase only**. Nothing here is code or a final decision — it's the map, not the territory.
@@ -14,6 +24,12 @@ This is a **research and planning phase only**. Nothing here is code or a final 
 | `04_reward_design.md` | What reward terms are actually used, documented failure modes (including a genuinely alarming published finding), and how potential-based shaping connects to this |
 | `05_challenges_and_pitfalls.md` | Sim-to-real gap, the safety/exploration tension, long-horizon credit assignment, generalization, and the standard evaluation metrics the field actually uses |
 | `06_recommendations.md` | Three project-scope tiers (minimal / medium / full-city) with concrete platform + algorithm + design-choice bundles and realistic time/compute estimates for each |
+| `07_reference_implementations.md` | Specific GitHub repos and tutorials to study or fork, with maintenance status checked directly and an honest quality verdict on each |
+| `08_training_frameworks_and_tdmpc2_gap.md` | SB3 / RLlib / CleanRL / Tianshou compared, plus an itemized engineering breakdown of what a real TD-MPC2 driving integration would require |
+| `09_traffic_behavior_modeling.md` | IDM, MOBIL, and the social force model at implementation detail — actual formulas, actual default constants, and which simulators ship each natively |
+| `10_curriculum_learning.md` | Concrete curriculum designs used in driving RL, the quantified evidence they work, and the documented case where a bad curriculum was worse than none |
+| `11_real_world_datasets.md` | WOMD, nuScenes, nuPlan, Argoverse 2, comma2k19 — access friction, licensing, and the three patterns for combining logged data with RL |
+| `12_small_scale_case_studies.md` | What solo developers and small teams have actually shipped, as a counterweight to the lab-scale focus of everything above |
 
 ## The single biggest thing this research surfaced
 
