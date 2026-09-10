@@ -113,3 +113,32 @@ overhead; environment stepping in highway-env is pure-Python and CPU-bound. GPU 
 slower.
 **Consequence**: Also reduces contention on a workstation shared with other projects. Recorded so
 that slow Phase 1 training is not misdiagnosed as a GPU configuration problem.
+
+---
+
+### D-010 — Workstation verified; PyTorch pinned to ≥2.7 / CUDA 12.8+
+**Date**: 2026-09-10
+**Decision**: Environment is a conda env named `rlsdc` under the existing miniforge3 install.
+PyTorch must come from the CUDA 12.8-or-newer index, and `sm_120` must be confirmed present in
+`torch.cuda.get_arch_list()` before the environment is considered working.
+**Rationale**: Survey of `dtgpu` found an RTX 5060 Ti with **compute capability 12.0** —
+Blackwell. PyTorch wheels built against CUDA 12.1 or 12.4 contain no `sm_120` kernels. They
+install without complaint and fail only at first GPU op, with an error that reads like a driver
+fault rather than a wheel mismatch. `torch.cuda.is_available()` returns `True` regardless, so it
+is not a valid check.
+**Also confirmed**: miniforge3 / conda 26.5.3; existing envs `base`, `env_isaaclab`, `lerobot`,
+so `rlsdc` does not collide; 8 CPU cores (caps vectorized envs around 6); 31 GB RAM; ~736 GB free
+disk; an IsaacLab process actively holding ~5.3 GB VRAM, confirming GPU sharing is real.
+**Consequence**: Environment setup gets an explicit verification step rather than being assumed
+to have worked. `conda` must be sourced explicitly in non-interactive ssh commands.
+
+---
+
+### D-011 — Credentials are not inspected; push access is tested by pushing
+**Date**: 2026-09-10
+**Decision**: Do not read `~/.gitconfig`, `~/.ssh/`, stored credential files, or `gh auth status`
+on the workstation to determine whether push works. Attempt the push instead and handle failure.
+**Rationale**: Inspecting credential-bearing state is broader access than the question requires,
+and the question is answerable directly by the operation itself.
+**Consequence**: GitHub push capability from the workstation is listed as unverified rather than
+assumed, and gets settled by the first real push.
