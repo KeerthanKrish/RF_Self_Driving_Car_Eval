@@ -231,3 +231,22 @@ version match rather than needing to be inferred — none was present.
 **Standing rule**: this applies to every install, not just torch. Nothing is installed outside
 `rlsdc`. No `sudo pip`, no `pip --user`, no changes to `base` or another project's environment.
 An audit command is in `docs/01_infrastructure_and_workflow.md`.
+
+---
+
+### D-018 — Headless rendering uses `OFFSCREEN_RENDERING=1`, never `SDL_VIDEODRIVER=dummy`
+**Date**: 2026-09-10
+**Decision**: Render via `rgb_array` with highway-env's `OFFSCREEN_RENDERING=1` set before pygame
+is imported. Write PNG/MP4 into the run directory and `scp` to the Mac for review.
+**Rationale**: The workstation has no display. The conventional headless-pygame fix
+(`SDL_VIDEODRIVER=dummy`) was tried first and **silently produced all-black frames** — correct
+shape and dtype, every pixel zero, no error raised. Measured across four configurations: both
+variants with the dummy driver gave mean 0.00 and one unique colour; both without it gave mean
+103.95 and seven colours.
+**Consequence**: A rendering regression here would not throw — it would quietly record hours of
+black video. Any change to the rendering path must be validated with a pixel statistic
+(`frame.mean()`, unique colour count), never by confirming a file exists or has plausible size.
+The first attempt's PNGs were 342 bytes, which is a perfectly reasonable size for a blank image;
+file size is not evidence of content.
+**Also settled**: highway-env is pygame 2D with no physics engine — not Isaac Sim, MuJoCo, or
+Gazebo. Comparison table added to `docs/02_technical_design.md`.

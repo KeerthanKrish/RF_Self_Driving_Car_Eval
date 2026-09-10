@@ -168,6 +168,39 @@ is also the polite one on a shared machine.
 
 Do not read "training is slow" in Phase 1 as "the GPU isn't being used."
 
+## Viewing the environment
+
+highway-env renders with **pygame** — 2D, top-down, no 3D engine. It is not Isaac Sim, MuJoCo,
+or Gazebo, and there is **no physics engine at all**: the kinematic bicycle equations are
+integrated directly in Python and collisions are rectangle intersections. See
+`docs/02_technical_design.md`.
+
+The workstation is headless (`DISPLAY` unset), so the workflow is **render to `rgb_array`, write
+PNG/MP4 into `runs/<id>/videos`, and `scp` to the Mac to look at**. `scripts/render_smoke.py` is
+the working reference.
+
+### Do not set `SDL_VIDEODRIVER=dummy`
+
+The obvious instinct for headless pygame is the dummy SDL video driver. On this machine it
+**silently produces all-black frames** — correct shape and dtype, zero pixels. Measured
+2026-09-10:
+
+| Configuration | Result |
+|---|---|
+| `SDL_VIDEODRIVER=dummy` + `OFFSCREEN_RENDERING=1` | mean 0.00, 1 colour — **BLANK** |
+| `SDL_VIDEODRIVER=dummy` alone | mean 0.00, 1 colour — **BLANK** |
+| `OFFSCREEN_RENDERING=1` alone | mean 103.95, 7 colours — works |
+| nothing set | mean 103.95, 7 colours — works |
+
+Use **`OFFSCREEN_RENDERING=1`**, highway-env's own flag, set before pygame is imported. It skips
+`pygame.display.set_mode()` and reads pixels straight off the drawing surface. Plain unset also
+happens to work here, but the explicit flag is the safer default since it never attempts to open
+a display.
+
+This failure mode is nasty precisely because it does not raise — a training run would happily
+record hours of black video. Any change to the rendering path should be checked with a pixel
+statistic (`frame.mean()`, unique colour count), not by confirming a file was written.
+
 ## File sync
 
 **Code, documentation, configs, and small results sync via git.**

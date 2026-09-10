@@ -56,6 +56,28 @@ MetaDrive is the fallback if extension turns out to fight the codebase.
 
 ---
 
+### What it is not: there is no physics engine
+
+Worth stating plainly, because the workstation also hosts Isaac Sim and the instinct is to assume
+a comparable stack. highway-env is **not** Isaac Sim, MuJoCo, Gazebo, or Bullet, and it contains
+no rigid-body dynamics solver of any kind.
+
+| | Isaac Sim / MuJoCo / Gazebo | highway-env |
+|---|---|---|
+| Renderer | 3D, GPU, photoreal-ish | **pygame, 2D top-down** |
+| Physics | Rigid-body solver: contacts, friction, inertia, joints | **None** — kinematic equations integrated directly in Python |
+| Collisions | Contact manifolds with impulse resolution | **Rectangle intersection test** |
+| Vehicles | Articulated bodies with suspension, tyre models | Rotated rectangles on a road graph |
+| Cost per step | Milliseconds, GPU-assisted | Microseconds, pure CPU |
+
+That is a deliberate advantage here, not a shortcoming. Physical realism is a non-goal, and the
+absence of a solver is exactly why episodes run in microseconds and why a full training run fits
+in minutes on a CPU. The frame is 600×150 pixels: green rectangle is the ego vehicle, blue
+rectangles are IDM traffic.
+
+The tradeoff to keep in view: nothing here transfers to real vehicle dynamics. Given the
+simulation-only decision (D-002), nothing needs to.
+
 ## 2. The car: kinematic bicycle model
 
 The ego vehicle is a **kinematic bicycle model** — the standard abstraction across driving RL.
