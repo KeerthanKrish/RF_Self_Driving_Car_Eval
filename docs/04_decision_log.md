@@ -157,3 +157,59 @@ between them now. Tailscale already provides an authenticated direct path.
 **Consequence and risk**: `rsync` has no conflict detection and will silently overwrite divergent
 edits, so **only one machine may be edited at a time** while this stopgap is in use. This is a
 real footgun and the reason it is explicitly temporary rather than adopted as the workflow.
+**Partially superseded by D-013.**
+
+---
+
+### D-013 — `origin` uses the SSH URL, not HTTPS
+**Date**: 2026-09-10
+**Decision**: `origin` is `git@github.com:KeerthanKrish/RF_Self_Driving_Car_Eval.git` on both
+machines.
+**Rationale**: The earlier push failure (D-011) was self-inflicted — `origin` had been configured
+with the HTTPS URL, for which no credentials are cached, while the workstation already had a
+registered SSH key. Switching the URL fixed it immediately.
+**Outcome**: **Workstation → GitHub push works.** `main` is published.
+**Still outstanding**: the Mac's SSH key is not registered on the GitHub account, so
+`git fetch` from the Mac still fails with `Permission denied (publickey)`. Fix is to add
+`~/.ssh/id_ed25519.pub` to the GitHub account. Until then the Mac syncs by `rsync`, and D-012's
+one-machine-at-a-time warning still applies to the Mac side.
+**Lesson worth keeping**: an auth failure is not automatically a credentials problem. Check the
+remote URL scheme first.
+
+---
+
+### D-014 — Tabular gridworld detour is kept (Phase 1a)
+**Date**: 2026-09-10
+**Decision**: Keep the short tabular detour — policy iteration, Q-learning vs SARSA on a toy
+gridworld — before DQN, rather than starting directly on highway-env.
+**Rationale**: Chosen deliberately. Tabular methods need a small discrete state space, and seeing
+Bellman backups converge directly is worth an afternoon before they are buried inside a neural
+network. The stated preference to "learn while doing" is satisfied by keeping it short and
+concrete rather than by skipping it.
+**Consequence**: Phase 1a stays in the roadmap as written.
+
+---
+
+### D-015 — Roadmap stays gated on completion, never on calendar time
+**Date**: 2026-09-10
+**Decision**: No wall-clock estimates or target dates anywhere in the project docs. Phases
+advance on their definition-of-done only.
+**Rationale**: Availability is bursty and unpredictable. An estimate built on a guessed time
+budget would be treated as a commitment and would create pressure to advance a phase before its
+competence gate is met — which is precisely the curriculum failure mode `research/10` documents,
+where a stage built on a poorly-trained predecessor performs worse than no curriculum at all.
+**Consequence**: Scheduling pressure and the main technical risk point the same direction here,
+which is convenient. "On track" means the current phase's gate is not yet met, nothing more.
+
+---
+
+### D-016 — Environment setup is a versioned script, not ad-hoc commands
+**Date**: 2026-09-10
+**Decision**: `scripts/setup_env.sh` creates the environment; `scripts/verify_env.sh` proves it
+works. Both live in the repo.
+**Rationale**: The charter requires the environment be reconstructible rather than a hand-built
+artifact existing only on one machine. It also makes the cu128 pin self-documenting at the point
+of use.
+**Consequence**: `verify_env.sh` asserts `sm_120` is in `torch.cuda.get_arch_list()` **and**
+runs a real GPU matmul, because `torch.cuda.is_available()` returns `True` even when no
+compatible kernels exist and is therefore not a valid check.
