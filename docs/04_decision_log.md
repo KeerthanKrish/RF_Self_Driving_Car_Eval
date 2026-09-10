@@ -142,3 +142,18 @@ on the workstation to determine whether push works. Attempt the push instead and
 and the question is answerable directly by the operation itself.
 **Consequence**: GitHub push capability from the workstation is listed as unverified rather than
 assumed, and gets settled by the first real push.
+**Outcome**: The push was attempted and failed — HTTPS has no cached credentials on the
+workstation. Recorded in `docs/01_infrastructure_and_workflow.md` as a blocking issue awaiting a
+credential decision. No further auth probing was done.
+
+---
+
+### D-012 — `rsync` over Tailscale as an interim sync, git as the intended one
+**Date**: 2026-09-10
+**Decision**: Until GitHub auth is configured, keep the two machines in sync with direct `rsync`
+over Tailscale. Git remains the intended mechanism and `origin` is already configured on both.
+**Rationale**: Neither machine can currently authenticate to GitHub, but the work needs to move
+between them now. Tailscale already provides an authenticated direct path.
+**Consequence and risk**: `rsync` has no conflict detection and will silently overwrite divergent
+edits, so **only one machine may be edited at a time** while this stopgap is in use. This is a
+real footgun and the reason it is explicitly temporary rather than adopted as the workflow.

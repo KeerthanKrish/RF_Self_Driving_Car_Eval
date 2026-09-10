@@ -189,20 +189,46 @@ Resolved on 2026-09-10:
 - [x] Other projects using the machine — Isaac Sim/IsaacLab actively on the GPU, plus several
       others in `~`
 - [x] Python available — 3.12.3 system; the `rlsdc` env will pin its own
-- [ ] Whether the workstation can push to GitHub — **not yet tested**, deliberately. Verifying
-      this means attempting a push, which is a real write; it will be done as the first action
-      of the next work session rather than inspecting stored credentials.
+- [x] Whether the workstation can push to GitHub — **it cannot, yet.** See below.
 
-## Known open issue: GitHub authentication from the Mac
+## Blocking issue: GitHub authentication is not configured on either machine
 
-Neither auth path works from the Mac as of 2026-09-10:
+The git half of the sync loop does not work yet. Both ends fail, for different reasons.
 
-- `gh` CLI: token in keyring is invalid (`gh auth refresh -h github.com` would fix it)
-- SSH: `git@github.com` returns `Permission denied (publickey)`
+**Workstation** — `git push` over HTTPS fails with
+`could not read Username for 'https://github.com'`. No credential helper or cached token is
+configured for this remote.
 
-This does not block the main workflow, since pushes originate from the workstation. It does block
-*pulling on the Mac* for review, which is half the sync loop, so it needs resolving. Fixing it
-means changing the Mac, so it waits for explicit approval rather than being done unilaterally.
+**Mac** — `gh` CLI reports its keyring token is invalid, and `git@github.com` over SSH returns
+`Permission denied (publickey)`.
 
-The repository at `RF_Self_Driving_Car_Eval` was empty as of this writing, so the first push
-establishes `main` and nothing can be clobbered by it.
+Resolving this requires a credential decision, so it is left for explicit choice rather than
+configured unilaterally. Reasonable options, roughly in order of convenience:
+
+1. `gh auth login` on the workstation, which also configures git's credential helper for HTTPS
+2. An SSH deploy key or account key on the workstation, and switch `origin` to the SSH URL
+3. A personal access token stored in a credential helper
+
+The Mac needs its own fix regardless, since pulling for review is the other half of the loop.
+
+**Current state in the meantime**: the repository exists with full history on *both* machines and
+`origin` is configured on both. The two are in sync via a direct `rsync` over Tailscale, which
+works today and needs no GitHub credentials:
+
+```bash
+# Mac -> workstation
+rsync -az ~/Keerthan/Projects/RF_Self_Driving_Car/ keerthan@100.71.12.16:~/RF_Self_Driving_Car_Eval/
+
+# workstation -> Mac
+rsync -az keerthan@100.71.12.16:~/RF_Self_Driving_Car_Eval/ ~/Keerthan/Projects/RF_Self_Driving_Car/
+```
+
+This is a stopgap, not the intended workflow — it has no conflict detection and will silently
+overwrite divergent edits, so only one machine should be edited at a time until git push works.
+Note also that macOS ships an old `rsync` that rejects `--info=stats1`; use `--stats`.
+
+The GitHub repository was empty as of this writing, so the first push will establish `main`
+without any risk of clobbering existing history.
+
+**Directory names differ by design**: `~/Keerthan/Projects/RF_Self_Driving_Car` on the Mac,
+`~/RF_Self_Driving_Car_Eval` on the workstation (matching the repo name).
