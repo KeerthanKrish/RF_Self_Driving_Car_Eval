@@ -45,7 +45,12 @@ at a time.
   0% collision, 24% off-road, mean return +9.18 despite 4.2% mean route completion. Consistent
   with the earlier finding that MetaDrive's default reward accrues positively from driving
   itself, independent of task progress *(done)*
-- SB3 SAC or PPO trains on it successfully, purely as a smoke test
+- SB3 PPO trains on it successfully, purely as a smoke test (`scripts/sb3_smoke.py`, 100k steps)
+  — harness correctness confirmed (value function learned, clearly beat the random baseline on
+  return/route-completion). It also reproduced the reward-hacking pattern live: 70% collision
+  rate, 0% success, mean return 10x the random baseline, by learning to drive fast and crash
+  rather than drive safely — see D-024. First concrete case motivating the reward-shaping work
+  in the next section *(done)*
 - **Read MetaDrive's own reward function out of the installed source** and run the
   trajectory-pair preference test on it (see `docs/02_technical_design.md` §5). A first probe
   already showed 88 steps of throttle-with-no-steering earning +49.25 while ending

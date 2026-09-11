@@ -467,3 +467,44 @@ produced the bug — now correctly returns `...-dirty`.
 **Action taken**: deleted the run directory produced under the buggy check
 (`runs/20260911-145624_random_metadrive_baseline`) rather than keep a result whose own provenance
 label was wrong, and re-ran the baseline after committing so its `git_sha.txt` is clean and real.
+
+---
+
+### D-024 — SB3 PPO smoke test: harness works, and it reproduced the reward-hacking pattern live
+**Date**: 2026-09-11
+**Setup**: `scripts/sb3_smoke.py`, 100,000 timesteps, `device="cpu"` (D-009: no benefit from GPU
+at this observation size), single env, `nice -n 19`, torch capped at 2 threads — kept deliberately
+low-priority since this workstation is shared and this project is explicitly lower priority than
+other work on it. Peaked at ~150% CPU (1.5 of 8 cores), load average unchanged, IsaacLab
+unaffected throughout (~15 minutes total).
+
+**Harness correctness-oracle verdict: passed.** `explained_variance` rose from ≈0 to 0.385 over
+training — the value function learned something real, not noise — and the trained policy clearly
+outperforms the random baseline on return and route progress. This is what the smoke test exists
+to prove: the environment, `RunDir`, and `evaluate_policy` glue together correctly enough for a
+trusted algorithm to learn through them.
+
+**What it actually learned is the more interesting result**:
+
+| metric | random baseline | SB3 PPO, 100k steps |
+|---|---|---|
+| success rate | 0% | 0% |
+| collision rate | 0% | **70%** |
+| off-road rate | 24% | 42% |
+| mean return | +9.18 | **+89.32** |
+| mean cost | 0.24 | 1.00 |
+| mean episode length | 910.4 | 82.6 |
+| route completion | 4.2% | 27.6% |
+
+PPO found that driving fast and far earns much more reward before crashing than driving
+cautiously earns over a longer episode, so it learned to floor it and crash on purpose the
+majority of the time. Root cause: MetaDrive's default reward pays out `driving_reward` (1.0) and
+`speed_reward` (0.1) **every step**, while `crash_vehicle_penalty`/`out_of_road_penalty` (5.0
+each) are **one-time terminal penalties** — a dense, continuously-accruing reward against a single
+fixed penalty, exactly the failure mode `research/04` (Knox et al.) describes. This is the same
+root cause as the `+49.25` anomaly first noticed with a hand-typed throttle-only action, now
+reproduced by an actual trained policy instead. Run: `runs/20260911-151809_sb3ppo_metadrive_smoke`.
+
+**Consequence**: this is now the concrete, first-hand motivating case for the reward-shaping work
+that comes right after the harness is finished — not a hypothetical to design around, a measured
+failure mode in this exact environment with these exact default weights.
