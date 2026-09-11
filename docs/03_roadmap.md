@@ -38,7 +38,13 @@ at a time.
   built-in `main_camera` sensor — see D-020 *(done)*
 - Run-artifact layout implemented (`rlsdc.artifacts.RunDir`) and train/eval scenario seed
   ranges decided and enforced disjoint (`rlsdc.scenarios`) — see D-022 *(done)*
-- Random-policy baseline measured on `MetaDriveEnv`
+- Evaluation harness implemented (`rlsdc.evaluate.evaluate_policy`): deterministic rollout on
+  all 50 held-out seeds, metrics pulled from MetaDrive's own `info` dict, cost reported
+  separately from return — see D-022/D-023 *(done)*
+- Random-policy baseline measured on `MetaDriveEnv` (`scripts/baseline_random.py`) — 0% success,
+  0% collision, 24% off-road, mean return +9.18 despite 4.2% mean route completion. Consistent
+  with the earlier finding that MetaDrive's default reward accrues positively from driving
+  itself, independent of task progress *(done)*
 - SB3 SAC or PPO trains on it successfully, purely as a smoke test
 - **Read MetaDrive's own reward function out of the installed source** and run the
   trajectory-pair preference test on it (see `docs/02_technical_design.md` §5). A first probe
