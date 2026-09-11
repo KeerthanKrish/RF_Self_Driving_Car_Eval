@@ -400,3 +400,41 @@ metadrive        0.4.3
 MetaDrive        OK  obs(259,)  action_space=Box(-1.0, 1.0, (2,), float32)
 ALL CHECKS PASSED
 ```
+
+---
+
+### D-022 — Phase 0 harness foundation: `rlsdc` package, `RunDir`, train/eval seed split
+**Date**: 2026-09-11
+**Context**: first concrete Phase 0 harness work. Everything else in the harness (baseline,
+evaluation, multi-seed plotting, the SB3 smoke test) writes into run directories and needs a
+settled train/eval seed split, so this had to exist first.
+
+**What was built**:
+- A proper installable package, `rlsdc/`, rather than sys.path hacks in every script.
+  `pip install -e .` added as a new step in `setup_env.sh`, so `import rlsdc` works from any
+  script regardless of working directory. Verified by re-running `setup_env.sh` end to end and
+  `verify_env.sh` (now also asserts `rlsdc` imports).
+- `rlsdc.artifacts.RunDir` — implements the layout already specified in
+  `docs/01_infrastructure_and_workflow.md` (`config.yaml`, `metrics.csv`, `checkpoints/`,
+  `videos/`, `stdout.log`, `git_sha.txt`), as a context manager. `git_sha.txt` includes a
+  `-dirty` suffix when there are uncommitted changes, so a run launched mid-edit is
+  distinguishable from a clean one. `mkdir(exist_ok=False)` deliberately — two runs colliding on
+  a directory name fails loudly rather than one silently overwriting the other.
+  `log_metrics()` fixes the CSV schema from the first row and raises if a later row's keys
+  differ, so a mid-run logging bug is caught immediately instead of producing a ragged CSV.
+- `rlsdc.scenarios` — the train/eval MetaDrive scenario-seed split, decided once: training uses
+  seeds `0..999`, evaluation uses a separate block of 50 seeds starting at `100_000`. The large
+  gap is deliberate headroom so the ranges can't accidentally overlap even if the training range
+  grows later. `assert_disjoint()` is a cheap guard scripts can call rather than trusting the
+  constants were never hand-edited into overlapping.
+
+**Verified on `dtgpu`**, not just imported — actually exercised, then the throwaway output
+deleted:
+- `assert_disjoint()` passes; `train_scenario_config()` / `eval_scenario_config()` return the
+  expected dicts.
+- A real `RunDir` run wrote a real directory: `config.yaml`, `metrics.csv` with 3 correctly
+  appended rows, `git_sha.txt` correctly showing the current commit `-dirty` (rlsdc/ wasn't
+  committed yet at test time), and `stdout.log` correctly capturing prints made inside the
+  `with` block via the stdout tee.
+- The schema-mismatch guard actually raises when tested with a deliberately mismatched second
+  row (`expected ['a', 'b'], got ['a', 'c']`), not just assumed to work by reading the code.

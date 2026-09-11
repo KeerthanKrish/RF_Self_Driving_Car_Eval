@@ -36,13 +36,14 @@ at a time.
 - MetaDrive runs headless; physics stepping, top-down and 3D rendering all verified *(done)*
 - Chase camera (third-person, behind/above the car) working for review videos, using MetaDrive's
   built-in `main_camera` sensor — see D-020 *(done)*
+- Run-artifact layout implemented (`rlsdc.artifacts.RunDir`) and train/eval scenario seed
+  ranges decided and enforced disjoint (`rlsdc.scenarios`) — see D-022 *(done)*
 - Random-policy baseline measured on `MetaDriveEnv`
 - SB3 SAC or PPO trains on it successfully, purely as a smoke test
 - **Read MetaDrive's own reward function out of the installed source** and run the
   trajectory-pair preference test on it (see `docs/02_technical_design.md` §5). A first probe
   already showed 88 steps of throttle-with-no-steering earning +49.25 while ending
   `out_of_road=True` — a large positive return for a failed episode.
-- Run-artifact layout working: per-run directory, config, git SHA, metrics CSV, video capture
 - Evaluation harness working: held-out seeds, deterministic rollouts, metrics separate from reward
 - Multi-seed runs and variance plotting working
 
