@@ -189,13 +189,28 @@ working reference for all three modes below.
 |---|---|---|---|
 | **None** | `use_render=False` | none | **Training default.** Physics only. |
 | **Top-down** | `env.render(mode="topdown", window=False)` | none — CPU raster | Debugging: schematic view of road, ego, traffic |
-| **3D camera** | `image_observation=True` with an `RGBCamera` sensor | **~1.6 GB** | Review videos, and image-observation experiments |
+| **3D dashcam** | `image_observation=True` with an `RGBCamera` sensor, `vehicle_config={"image_source": "rgb_camera"}` | **~1.6 GB** | Forward-facing image-observation experiments (what a camera-based agent would actually see) |
+| **3D chase** | `image_observation=True` with the built-in `main_camera` sensor, `vehicle_config={"image_source": "main_camera"}` | **~1.6 GB** | Review videos — third-person view from behind/above the car, for watching episodes as a human |
+
+The chase camera is not something built for this project — it is MetaDrive's own `MainCamera`
+class (`metadrive/engine/core/main_camera.py`), documented in its source as "a third-person
+perspective camera for chasing the vehicle." Its default framing is 7.5 m behind and 2.2 m above
+the car (`camera_dist`, `camera_height` in the global config), which is exactly a chase-cam
+composition out of the box. It carries a HUD overlay (steering/throttle/brake/speed bars, a nav
+arrow, a help hint) by default; pass `interface_panel: []` in the config to get clean footage
+without it. Both `3d` and `chase` modes are exercised in `scripts/metadrive_smoke.py`.
 
 Measured on `dtgpu` 2026-09-10, with IsaacLab already holding 5252 MiB:
 
 - headless and top-down: GPU compute-app list **byte-identical** before and after — untouched
 - 3D: total GPU use peaked at 6990 MiB of 16311, free never below 8856 MiB, and IsaacLab's
   process was unchanged at 5252 MiB throughout
+
+Re-checked 2026-09-11 for the chase-camera mode specifically, with IsaacLab now *actively
+computing* (65% utilization, a different PID than the earlier check) rather than idle: IsaacLab's
+own GPU memory (3326 MiB) was byte-identical before and after the chase-camera run, and 12+ GB
+was free before starting. Same rule either way: check `nvidia-smi` first, don't assume idle means
+safe headroom forever.
 
 **Rule for the shared card**: 3D rendering is for producing review videos, not for routine
 training. Check `nvidia-smi` before enabling it. `image_on_cuda=True` (MetaDrive's option to keep

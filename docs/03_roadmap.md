@@ -34,6 +34,8 @@ at a time.
 
 - Environment set up and isolated on the workstation; dependencies pinned in the repo *(done)*
 - MetaDrive runs headless; physics stepping, top-down and 3D rendering all verified *(done)*
+- Chase camera (third-person, behind/above the car) working for review videos, using MetaDrive's
+  built-in `main_camera` sensor — see D-020 *(done)*
 - Random-policy baseline measured on `MetaDriveEnv`
 - SB3 SAC or PPO trains on it successfully, purely as a smoke test
 - **Read MetaDrive's own reward function out of the installed source** and run the

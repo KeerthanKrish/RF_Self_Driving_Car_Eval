@@ -331,3 +331,46 @@ what rules CARLA out rather than in.
 a limitation. That is stale — both landed in 2023, and traffic-light detection was updated in
 January 2025. Read the repository, not the paper, for current capability. `research/01` and
 `research/03` cite the paper and are therefore out of date on this point.
+
+---
+
+### D-020 — Chase camera uses MetaDrive's built-in `main_camera` sensor; cost signal confirmed real
+**Date**: 2026-09-11
+**Context**: two follow-up questions before starting reward-function work: (1) the vehicle was
+only viewable through a forward-facing dashcam, and a third-person "watch the car from behind"
+view was wanted for review videos; (2) `docs/02_technical_design.md` and `research/` both assert
+MetaDrive tracks crashes/off-road as a separate `cost` signal from `reward` — this had not yet
+been verified against the installed source the way the reward function was.
+
+**Chase camera — decision**: use MetaDrive's own `MainCamera` (`metadrive/engine/core/
+main_camera.py`), not a custom-built one. Its docstring: "a third-person perspective camera for
+chasing the vehicle." Mounted the same way as the dashcam — as an image sensor, no on-screen
+window required — via `sensors={"main_camera": ()}` and `vehicle_config={"image_source":
+"main_camera"}`. Default framing (`camera_dist=7.5`, `camera_height=2.2`, read from `metadrive/
+envs/base_env.py`'s default config) is already a correct chase-cam composition; nothing needed
+tuning. Implemented as a fourth mode (`chase`) in `scripts/metadrive_smoke.py`, alongside
+`headless`/`topdown`/`3d`.
+
+**Verified on `dtgpu`** (IsaacLab now actively computing at 65% utilization under a different PID
+than the earlier D-019 check, not idle — checked headroom fresh rather than assuming the old
+reading still applied):
+
+| Check | Result |
+|---|---|
+| Frame content | `mean=139.01`, 25,278 unique colours — real image, not blank |
+| Composition | car visible from behind/above, road and lane markings ahead of it |
+| GPU headroom before | 12,314 MiB free |
+| IsaacLab disturbed? | No — 3,326 MiB, byte-identical before and after |
+
+Frame saved at `runs/metadrive_smoke_chase/frame_mid.png`. Carries MetaDrive's default HUD overlay
+(steering/throttle/brake/speed bars, nav arrow, help hint); `interface_panel: []` removes it for
+clean footage, left on for now since it's useful for debugging.
+
+**Cost signal — verified, not assumed**: read `metadrive/envs/metadrive_env.py`'s
+`cost_function` directly. It exists in the base `MetaDriveEnv` (not only in `SafeMetaDriveEnv`)
+and returns `1.0` on out-of-road, vehicle crash, or object crash (`out_of_road_cost`,
+`crash_vehicle_cost`, `crash_object_cost`, all default `1.0`), `0.0` otherwise, surfaced via
+`info["cost"]` — separate from the `reward` returned by `step()`. `SafeMetaDriveEnv` layers a
+cumulative `episode_cost` and different defaults (higher `accident_prob`, `cost_to_reward=False`
+so cost stays out of the reward number by default) on top of the same function. Confirms the
+earlier claim in `docs/02_technical_design.md`; no correction needed.

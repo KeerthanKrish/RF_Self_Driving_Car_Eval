@@ -5,9 +5,13 @@ separates what needs the GPU from what does not:
 
   headless : physics stepping only, no rendering  -> no GPU
   topdown  : CPU top-down raster renderer         -> no GPU
-  3d       : Panda3D offscreen 3D render          -> needs a GL context
+  3d       : Panda3D offscreen dashcam render      -> needs a GL context
+  chase    : Panda3D offscreen third-person chase  -> needs a GL context
+             camera ("main_camera" sensor), positioned behind/above the
+             car (defaults: 7.5m back, 2.2m up -- read from
+             metadrive/envs/base_env.py). This is the review-video view.
 
-Usage:  python scripts/metadrive_smoke.py {headless|topdown|3d} [out_dir]
+Usage:  python scripts/metadrive_smoke.py {headless|topdown|3d|chase} [out_dir]
 """
 
 import sys
@@ -42,6 +46,20 @@ if mode == "3d":
         vehicle_config={"image_source": "rgb_camera"},
         norm_pixel=False,   # keep uint8 so frames are writable as-is
     )
+elif mode == "chase":
+    # "main_camera" is MetaDrive's built-in third-person chase camera --
+    # see metadrive/engine/core/main_camera.py: "a third-person perspective
+    # camera for chasing the vehicle." Used here purely as an image sensor
+    # (no window), same pattern as the dashcam RGBCamera above.
+    config.update(
+        image_observation=True,
+        sensors={"main_camera": ()},
+        vehicle_config={"image_source": "main_camera"},
+        norm_pixel=False,
+        window_size=(640, 360),
+        camera_dist=7.5,    # MetaDrive defaults, named explicitly rather
+        camera_height=2.2,  # than left implicit
+    )
 
 def latest_frame(observation):
     """Pull the camera image out of an image-observation dict.
@@ -59,7 +77,7 @@ def latest_frame(observation):
 env = MetaDriveEnv(config)
 try:
     obs, info = env.reset(seed=0)
-    if mode == "3d":
+    if mode in ("3d", "chase"):
         print(f"observation keys  {list(obs.keys())}")
         print(f"image shape       {np.asarray(obs['image']).shape}")
         print(f"state shape       {np.asarray(obs['state']).shape}")
@@ -80,7 +98,7 @@ try:
         if mode == "topdown":
             frames.append(env.render(mode="topdown", window=False,
                                      screen_size=(600, 600), scaling=3))
-        elif mode == "3d":
+        elif mode in ("3d", "chase"):
             frames.append(latest_frame(obs))
 
         if terminated or truncated:
