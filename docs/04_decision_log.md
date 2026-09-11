@@ -438,3 +438,32 @@ deleted:
   `with` block via the stdout tee.
 - The schema-mismatch guard actually raises when tested with a deliberately mismatched second
   row (`expected ['a', 'b'], got ['a', 'c']`), not just assumed to work by reading the code.
+
+---
+
+### D-023 — `git_sha()` missed untracked files; caught on the very first real run
+**Date**: 2026-09-11
+**What happened**: built `rlsdc/evaluate.py` and `scripts/baseline_random.py`, then ran the
+random-policy baseline as the harness's first real end-to-end exercise. It completed (50
+episodes, 3m08s) and wrote `git_sha.txt` with **no** `-dirty` suffix — implying a fully clean,
+committed, reproducible state. It was not: both files that had just been written and were doing
+the actual work were still untracked, uncommitted.
+
+**Root cause**: `git_sha()` used `git diff --quiet --exit-code` to detect dirtiness. That command
+only reports on modifications to files git already tracks — it is silent about new, untracked
+files. A run built entirely from a brand-new, never-committed script is exactly the case it
+missed.
+
+**Why this matters here specifically**: `docs/02_technical_design.md` Section 8 states "a result
+that cannot be traced to exact code and exact config is not a result." A `-dirty`-detection bug
+that under-reports dirtiness is the precise failure mode that rule exists to prevent — a run could
+look fully reproducible from a commit hash while actually depending on code nobody could
+reproduce from that hash.
+
+**Fix**: switched to `git status --porcelain`, which reports staged, unstaged, *and* untracked
+changes. Verified the fix by re-running it against the exact still-uncommitted state that
+produced the bug — now correctly returns `...-dirty`.
+
+**Action taken**: deleted the run directory produced under the buggy check
+(`runs/20260911-145624_random_metadrive_baseline`) rather than keep a result whose own provenance
+label was wrong, and re-ran the baseline after committing so its `git_sha.txt` is clean and real.

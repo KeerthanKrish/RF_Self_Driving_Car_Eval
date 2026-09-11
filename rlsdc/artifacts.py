@@ -39,6 +39,14 @@ RUNS_DIR = REPO_ROOT / "runs"
 def git_sha() -> str:
     """Current commit, with a "-dirty" suffix if there are uncommitted changes.
 
+    Uses `git status --porcelain` rather than `git diff --quiet`: the latter
+    only catches modifications to already-tracked files and misses new
+    *untracked* files -- which is exactly the case for a brand new script
+    that hasn't been committed yet. A dirty-check that misses untracked
+    files would silently mislabel a run as reproducible-from-a-clean-commit
+    when it actually depended on code that isn't in git history at all.
+    (Caught this the first time it mattered: see D-023.)
+
     Never raises: if git isn't available or this isn't a repo, returns a
     string that says so, rather than crashing a run over a non-essential
     provenance detail.
@@ -47,10 +55,10 @@ def git_sha() -> str:
         sha = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
         ).strip()
-        is_dirty = subprocess.run(
-            ["git", "diff", "--quiet", "--exit-code"], cwd=REPO_ROOT
-        ).returncode != 0
-        return f"{sha}-dirty" if is_dirty else sha
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=REPO_ROOT, text=True
+        )
+        return f"{sha}-dirty" if status.strip() else sha
     except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
         return f"UNKNOWN (git_sha() failed: {exc})"
 
