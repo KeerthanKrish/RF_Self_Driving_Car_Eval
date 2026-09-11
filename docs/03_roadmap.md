@@ -1,7 +1,12 @@
 # Roadmap: Capability Curriculum and Learning Syllabus
 
-**Status**: proposed
+**Status**: proposed, updated for the MetaDrive switch (D-019)
 **Last updated**: 2026-09-10
+
+> **Changed 2026-09-10.** Environment moved from highway-env to MetaDrive. Two structural
+> consequences, both worked into the phases below: the fast "prove my algorithm is correct"
+> environment is now classic control rather than a second driving sim, and Phase 4's traffic
+> lights are a native feature to configure rather than a subsystem to build.
 
 Phases are gated by **definition of done**, not by elapsed time. Wall-clock estimates are
 deliberately omitted — see "On scheduling" at the end.
@@ -27,9 +32,14 @@ at a time.
 **Unknowns**: none. Trusted environment, trusted algorithm.
 **Purpose**: prove the plumbing before anything interesting depends on it.
 
-- Environment set up and isolated on the workstation; dependencies pinned in the repo
-- `highway-v0` runs; random-policy baseline measured
-- SB3 PPO or DQN trains on it successfully, purely as a smoke test
+- Environment set up and isolated on the workstation; dependencies pinned in the repo *(done)*
+- MetaDrive runs headless; physics stepping, top-down and 3D rendering all verified *(done)*
+- Random-policy baseline measured on `MetaDriveEnv`
+- SB3 SAC or PPO trains on it successfully, purely as a smoke test
+- **Read MetaDrive's own reward function out of the installed source** and run the
+  trajectory-pair preference test on it (see `docs/02_technical_design.md` §5). A first probe
+  already showed 88 steps of throttle-with-no-steering earning +49.25 while ending
+  `out_of_road=True` — a large positive return for a failed episode.
 - Run-artifact layout working: per-run directory, config, git SHA, metrics CSV, video capture
 - Evaluation harness working: held-out seeds, deterministic rollouts, metrics separate from reward
 - Multi-seed runs and variance plotting working
@@ -46,10 +56,10 @@ returns, discounting, why evaluation must be separate from training.
 
 **Unknowns**: my algorithm. Environment stays trusted.
 
-### 1a. Tabular detour (toy gridworld, not highway-env)
+### 1a. Tabular detour (toy gridworld, not MetaDrive)
 
-A short, deliberate diversion. Tabular methods need a small discrete state space, and forcing
-highway-env into one would teach less than a gridworld teaches in an afternoon.
+A short, deliberate diversion. Tabular methods need a small discrete state space, and forcing a
+driving environment into one would teach less than a gridworld teaches in an afternoon.
 
 - Policy evaluation and policy iteration, so Bellman backups are seen converging directly
 - Q-learning and SARSA on the same problem — the on-policy vs off-policy difference made visible
@@ -59,9 +69,27 @@ highway-env into one would teach less than a gridworld teaches in an afternoon.
 **Done when**: Q-learning and SARSA produce visibly different policies on a cliff-walk-style
 problem, and the reason is explainable without notes.
 
-### 1b. DQN from scratch on `highway-v0`
+### 1b. A discretizing action wrapper — a new prerequisite
 
-Observation: `Kinematics`. Action: `DiscreteMetaAction`.
+MetaDrive's action space is **continuous only** (`Box(-1, 1, (2,))`, verified). DQN needs discrete
+actions, and unlike highway-env there is no built-in discrete mode. So a small
+`gymnasium.ActionWrapper` mapping a handful of discrete choices onto `[steering, acceleration]`
+pairs has to exist first.
+
+It is roughly thirty lines, and writing it makes the discrete/continuous distinction concrete
+rather than a config flag. But it is a **new unproven component**, so per the operating principle
+it gets validated with **SB3's** DQN before any hand-written DQN runs through it — otherwise a
+failure has two possible causes.
+
+**Done when**: SB3's DQN learns through the wrapper, proving the wrapper is not the problem.
+
+### 1c. DQN from scratch
+
+Validated in two stages, cheapest first:
+
+1. **CartPole** — instant feedback, SB3's reference results exhaustively validated. If the
+   hand-written DQN fails here, the bug is unambiguously in the algorithm.
+2. **MetaDrive** via the wrapper from 1b, once CartPole passes.
 
 - Replay buffer, target network, ε-schedule, Huber loss, all hand-written
 - Validated against SB3's DQN: same env, same seeds, same hyperparameters (taken from
@@ -69,7 +97,7 @@ Observation: `Kinematics`. Action: `DiscreteMetaAction`.
 - **Ablation, the highest-value exercise in the project**: remove the replay buffer and watch it
   break; restore it and remove the target network and watch it break differently
 
-### 1c. Double DQN and Dueling DQN
+### 1d. Double DQN and Dueling DQN
 
 - Demonstrate Q-value overestimation, then show Double DQN reducing it
 - Value/advantage decomposition
@@ -86,11 +114,14 @@ experience replay, target networks, overestimation bias.
 
 **Unknowns**: my algorithm. Environment still trusted.
 
+Same two-stage validation as 1c: CartPole first for instant feedback, then MetaDrive.
+
 - REINFORCE — the policy gradient theorem, Monte Carlo returns, and directly observing how
   high-variance it is
 - Add a baseline, then a learned critic (A2C) — variance reduction, bias–variance tradeoff
 - **PPO** — GAE, importance sampling, the clipped surrogate objective
-- Vectorized environments arrive here, because on-policy methods need throughput
+- Vectorized environments arrive here, because on-policy methods need throughput. Note the
+  workstation has **8 cores**, so roughly 6 parallel workers before contention.
 
 **Done when**: hand-written PPO matches SB3's PPO within seed noise, and the variance reduction
 from REINFORCE → baseline → critic is measured rather than asserted.
@@ -102,10 +133,17 @@ trust regions, on-policy vs off-policy data efficiency.
 
 ## Phase 3 — Continuous control
 
-**Unknowns**: my algorithm. Switch to `ContinuousAction`.
+**Unknowns**: my algorithm. Drop the discretizing wrapper and use MetaDrive's **native**
+continuous action space.
 
-The action space change is the point: the agent now learns actual steering and throttle rather
-than picking maneuvers the environment executes for it.
+The action space change is the point: the agent now learns actual steering and throttle directly
+against Bullet-simulated vehicle dynamics, rather than picking from a handful of discretized
+choices. This is also where the physics-backed simulator starts genuinely mattering — smooth
+continuous control of a rigid body with wheel contact is a different problem from selecting
+among five options.
+
+Validation ladder: **Pendulum** first (the standard instant continuous-control check), then
+MetaDrive.
 
 - PPO-continuous — Gaussian policy over actions
 - **SAC** — maximum-entropy RL, twin critics, the reparameterization trick, automatic temperature
@@ -130,18 +168,26 @@ with a competence gate before the next one.
 
 | Step | Capability | Built-in? | RL concept it forces |
 |---|---|---|---|
-| 4a | Static obstacles | Yes — highway-env has obstacle objects | Exploration under termination risk; reward shaping around hazards |
-| 4b | Moving obstacles / dense traffic | Yes — `IDMVehicle` traffic | Partial observability; why a single frame is not a sufficient state; frame stacking or velocity features |
-| 4c | Traffic lights | **No — must be built** | Long-horizon credit assignment; conditional behavior; how a state feature changes what is learnable |
-| 4d | Stop signs / road signs | **No — must be built** | Rule compliance as constraint vs reward (`research/04`) |
-| 4e | Intersections and turns | Partly — `intersection-v0` exists | Multi-objective reward aggregation; the Knox et al. trap in full |
-| 4f | Scenario randomization | Partly — needs work | Generalization; the diversity lever from `research/05`, tested on held-out layouts |
+| 4a | Static obstacles | Yes — MetaDrive has static traffic objects | Exploration under termination risk; reward shaping around hazards |
+| 4b | Moving obstacles / dense traffic | Yes — `IDMPolicy` traffic, density configurable | Partial observability; why one frame is not a sufficient state; frame stacking or velocity features |
+| 4c | Traffic lights | **Yes — native since 2023** | Long-horizon credit assignment; conditional behaviour; how a state feature changes what is learnable |
+| 4d | Pedestrians | **Yes — native since 2023** | Reacting to non-vehicle agents; rule compliance as constraint vs reward (`research/04`) |
+| 4e | Intersections and turns | Yes — intersection blocks in procedural generation | Multi-objective reward aggregation; the Knox et al. trap in full |
+| 4f | Scenario randomization | Yes — `num_scenarios` is the core mechanism | Generalization; the diversity lever from `research/05`, on held-out maps |
 
-**4c is the real transition point.** highway-env has no traffic-control infrastructure at all, so
-this is where custom environment work genuinely begins: a signal-phase state machine, a new road
-object, an observation feature, a termination/violation condition, and reward or cost handling.
-Extending highway-env is preferred over switching platforms, so that kinematics, rendering, and
-traffic models remain trusted while only the new capability is unproven.
+**This is the biggest change from the highway-env plan, and it is a net win.** Previously 4c and
+4d required building a traffic-light subsystem and road-sign objects from scratch — a signal-phase
+state machine, new road objects, observation features, violation conditions. MetaDrive ships all
+of it. That deletes weeks of *simulator* engineering which would have taught nothing about RL.
+
+What remains genuinely "my environment" in this phase is the part that actually matters:
+composing scenarios, designing observation features that expose each new capability to the agent,
+writing and validating the reward and cost terms for each, and building the held-out evaluation
+sets. The work moves from plumbing to RL design, which is the right direction for this project.
+
+**A discipline that becomes essential here**: MetaDrive's `num_scenarios` and `start_seed`
+control which procedurally generated maps appear. Training and evaluation **must use disjoint
+scenario ranges**, or 4f measures memorization rather than generalization.
 
 **Done, per step**: the agent reaches a pre-agreed success-rate threshold on held-out seeds
 *before* the next capability is added. This gate is the specific mitigation for the curriculum

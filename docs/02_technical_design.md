@@ -1,177 +1,177 @@
 # Technical Design
 
-**Status**: proposed. Pinned versions are now installed and verified — highway-env 1.12.1,
-gymnasium 1.3.0, torch 2.11.0+cu128, SB3 2.9.0. Items still marked "confirm" are ones not yet
-read directly from the installed source.
+**Status**: MetaDrive selected and verified working on `dtgpu`. Values marked **verified** were
+measured on the installed version, not taken from documentation.
 **Last updated**: 2026-09-10
 
 Covers the concrete decisions: which simulator, what the car actually is, what the agent sees and
 does, how reward is built, which algorithms get implemented in what order, and what the
 supporting machinery has to be.
 
+> **Changed 2026-09-10.** This document previously specified highway-env. The project moved to
+> MetaDrive because a physics-backed 3D environment was required — see D-019 in the decision log
+> for the full rationale and the alternatives rejected.
+
 ---
 
-## 1. Simulator: highway-env
+## 1. Simulator: MetaDrive
 
-[highway-env](https://github.com/Farama-Foundation/HighwayEnv), maintained by the Farama
-Foundation (the same organization that maintains Gymnasium itself).
+[MetaDrive](https://github.com/metadriverse/metadrive) — an open-source driving simulator built
+specifically for reinforcement learning research. **Version 0.4.3 installed and verified.**
 
-**Why it wins for this project specifically**, beyond the dossier's Tier 1 recommendation in
-`research/06`:
+### What it actually is
 
-- **Readable end to end.** Pure Python, small codebase. This matters more than usual here because
-  the plan is to *modify and extend* the environment in later phases, not just consume it.
-- **Textbook-faithful traffic models.** `research/09` establishes that highway-env is the only
-  surveyed platform where you edit the actual named constants from the traffic literature
-  (`TIME_WANTED`, `POLITENESS`, `DISTANCE_WANTED`) rather than a simulator-specific abstraction.
-  When traffic behavior gets tuned by hand, that transparency is the whole point.
-- **Gymnasium-native**, so both hand-written algorithms and SB3 attach to it without a wrapper.
-- **Seconds-to-minutes training loops** on CPU. Iteration speed is the dominant factor in how
-  much gets learned per week.
-- **Multiple built-in scenarios** to graduate through: `highway-v0`, `merge-v0`, `roundabout-v0`,
-  `intersection-v0`, `racetrack-v0`, `two-way-v0`, `exit-v0`, `u-turn-v0`, `parking-v0`.
+A **Python package**, not a separate application you launch and connect to over a socket. That
+distinction matters: it imports directly, so there is no server process to manage, no port
+handshake, and no version-matched client library.
 
-**The limitation that will eventually force a decision, stated now rather than discovered later:**
+- **Rendering**: Panda3D, a real 3D game engine, with physically-based rendering
+- **Physics**: Bullet — the car is a rigid-body chassis with four wheels and joints under
+  constraints, not a point whose position is computed
+- **API**: Gymnasium-native
+- **Size**: ~100 MB plus downloaded assets
+- **Roads**: procedurally composed from building blocks (straight, curve, intersection,
+  roundabout, ramp, merge), so the supply of distinct maps is effectively unlimited
+- **Already populated**: scripted IDM traffic, **traffic lights**, pedestrians, cyclists
 
-> highway-env has **no traffic lights and no road signs**. It models vehicles, lanes, and
-> collisions — not traffic-control infrastructure.
+### Why it fits this project
 
-The stated capability progression (obstacles → moving obstacles → road signs → …) therefore runs
-out of built-in support exactly at "road signs." That is not a problem, it is a scheduled
-transition, and it lands naturally at the point where the roadmap wants to move from *trusted
-environment* to *my environment*. When it arrives, the intended answer is to **extend highway-env
-by hand** rather than switch platforms — a new road-object type, a signal-phase state machine, an
-observation feature, and a termination condition — because that keeps kinematics, rendering, and
-traffic models as trusted components while only the new capability is unproven. Switching to
-MetaDrive is the fallback if extension turns out to fight the codebase.
+- **It has real physics**, which was the requirement that triggered the change. MetaDrive's own
+  paper draws the contrast explicitly, describing highway-env and similar tools as ones that
+  "only simulate vehicle with simple kinematic model."
+- **~300 FPS** single-agent with traffic — roughly **12× CARLA's** ~25 FPS. With hand-written
+  algorithms needing multi-seed comparisons, this is the difference between an hour and most of a
+  day per experiment.
+- **Procedural map generation** is the one empirically validated generalization lever in
+  `research/05`, and it is this simulator's core mechanism rather than an add-on.
+- **Traffic lights and pedestrians ship with it**, which deletes a substantial chunk of
+  simulator engineering from Phase 4 — engineering that would have taught nothing about RL.
+- **It coexists with IsaacLab** on the shared GPU. Measured peak: ~1.6 GB, leaving 8.8 GB free.
 
-**Rejected alternatives** (full survey in `research/01`):
+### Rejected alternatives
 
 | Rejected | Reason |
 |---|---|
-| MetaDrive | Better for generalization research, heavier, less readable. Held as the fallback if extending highway-env fails. |
-| CARLA | Photorealism is a non-goal. Would add GPU cost, install weight, and porting churn (`research/07`: third-party CARLA wrappers age out within 1–2 years) for zero learning benefit here. |
-| Waymax / GPUDrive / nuPlan | Require Waymo dataset licenses and JAX/CUDA fluency; solve a large-scale realism problem this project does not have. |
-| Custom environment from zero | Would mean debugging my kinematics *and* my algorithm simultaneously — the exact failure mode the charter's operating principle exists to prevent. |
+| **highway-env** (the previous choice) | No physics engine at all — kinematics integrated in Python, collisions by rectangle intersection, 2D rectangles for visuals. Also has no traffic lights or road signs. |
+| **CARLA** | Photorealism is not needed. Costs ~25 FPS, a 130–170 GB install, and 16 GB VRAM against a card already hosting IsaacLab — leaving ~10.7 GB, below the 12 GB threshold at which CARLA warns the default map may fail to load. |
+| **Isaac Sim / Isaac Lab** | Already installed on the workstation, so seriously considered. Ruled out on NVIDIA's own guidance: Isaac Sim "is primarily developed for simulating indoor robots operating in structured, controlled environments," has "no assets related to autonomous vehicles," does not support OpenDRIVE road formats, and NVIDIA explicitly does not recommend it for outdoor autonomous-vehicle simulation. |
+| **MuJoCo / PyBullet** | Excellent physics, but **no road, no car, no traffic, no driving environment**. Choosing these means personally building vehicle models, lane geometry, and traffic before training anything — weeks of MJCF/URDF modelling that teaches simulation engineering, not RL. |
+| **Gazebo** | Has a Prius-and-city demo, but drags in ROS and is slow for RL throughput. |
+
+### Known limitation
+
+Visual fidelity is below CARLA's by design — the MetaDrive paper is explicit that it "trades off
+the visual appearance quality for its high sample efficiency." Textured roads, lane markings,
+terrain, and sky, but not photorealism. This is accepted: photorealism is a project non-goal.
+
+One documentation caveat worth recording: the 2021 MetaDrive paper lists "no pedestrians or
+cyclists" under limitations. **That is stale.** Pedestrian and cyclist support landed in 2023,
+traffic lights the same year, with traffic-light detection updated January 2025. Read the
+repository, not the paper, for current capability.
 
 ---
 
-### What it is not: there is no physics engine
+## 2. The car: Bullet rigid body
 
-Worth stating plainly, because the workstation also hosts Isaac Sim and the instinct is to assume
-a comparable stack. highway-env is **not** Isaac Sim, MuJoCo, Gazebo, or Bullet, and it contains
-no rigid-body dynamics solver of any kind.
+The ego vehicle is a **rigid-body chassis with four wheels and joints**, simulated by Bullet —
+not a kinematic approximation. Wheels have contact with the road surface, so the vehicle has
+traction, weight transfer, and can be unsettled by its own maneuvers in ways a bicycle model
+cannot express.
 
-| | Isaac Sim / MuJoCo / Gazebo | highway-env |
+**Timing** (MetaDrive defaults): physics substep `dt = 0.02 s`, `decision_repeat = 5`, so one
+`env.step()` advances **0.1 s** of simulated time, with Bullet integrating five substeps inside
+it. The agent therefore acts at 10 Hz while physics runs at 50 Hz.
+
+**Other traffic** is driven by MetaDrive's `IDMPolicy` — the Intelligent Driver Model from
+`research/09`. These are part of the environment's dynamics, not agents to coordinate with, which
+is what keeps this a single-agent problem and multi-agent RL out of scope.
+
+### How this differs from what was planned before
+
+| | highway-env (previous) | MetaDrive (now) |
 |---|---|---|
-| Renderer | 3D, GPU, photoreal-ish | **pygame, 2D top-down** |
-| Physics | Rigid-body solver: contacts, friction, inertia, joints | **None** — kinematic equations integrated directly in Python |
-| Collisions | Contact manifolds with impulse resolution | **Rectangle intersection test** |
-| Vehicles | Articulated bodies with suspension, tyre models | Rotated rectangles on a road graph |
-| Cost per step | Milliseconds, GPU-assisted | Microseconds, pure CPU |
+| Vehicle model | Kinematic bicycle, integrated in Python | Bullet rigid body: chassis, wheels, joints |
+| Collisions | Rectangle intersection test | Physics contacts |
+| Renderer | 2D coloured rectangles | Panda3D 3D with PBR |
+| Traffic lights | None | Native |
+| Pedestrians | None | Native |
+| Speed | thousands FPS | ~300 FPS |
 
-That is a deliberate advantage here, not a shortcoming. Physical realism is a non-goal, and the
-absence of a solver is exactly why episodes run in microseconds and why a full training run fits
-in minutes on a CPU. The frame is 600×150 pixels: green rectangle is the ego vehicle, blue
-rectangles are IDM traffic.
-
-The tradeoff to keep in view: nothing here transfers to real vehicle dynamics. Given the
-simulation-only decision (D-002), nothing needs to.
-
-## 2. The car: kinematic bicycle model
-
-The ego vehicle is a **kinematic bicycle model** — the standard abstraction across driving RL.
-No tire slip, no suspension, no soft-body dynamics. Position, heading, and speed only.
-
-State: position `(x, y)`, heading `ψ`, speed `v`.
-Control inputs: acceleration `a`, steering angle `δ`.
-
-```
-ẋ = v · cos(ψ + β)
-ẏ = v · sin(ψ + β)
-ψ̇ = (v / l) · sin(β)
-v̇ = a
-β = arctan( ½ · tan(δ) )        # slip angle at the center of gravity
-```
-
-`β` is the correction for measuring from the center of gravity rather than the rear axle. Vehicle
-footprint is roughly 5.0 m × 2.0 m (confirm against pinned version).
-
-**Two distinct vehicle classes matter**, and conflating them causes confusion later:
-
-- **The ego vehicle** — driven by the learned policy. This is the agent.
-- **`IDMVehicle`** — scripted traffic, following IDM for car-following and MOBIL for lane changes.
-  These are *part of the environment's dynamics*, not agents to coordinate with. Treating them as
-  environment is what keeps this a single-agent problem and keeps multi-agent RL out of scope.
-
-IDM and MOBIL parameters, with highway-env's defaults, are tabulated in `research/09`. The one
-worth knowing up front: **MOBIL's politeness factor defaults to `0.0`**, meaning scripted traffic
-is purely selfish and will not yield courteously. If traffic feels unrealistically aggressive,
-that constant is why.
-
-**Two clocks**, which trip people up:
-- `simulation_frequency` (~15 Hz) — physics integration
-- `policy_frequency` (~1 Hz by default) — how often the agent acts
-
-The agent acts far less often than the world updates. Raising `policy_frequency` gives finer
-control and longer episodes in agent-steps; it also makes credit assignment harder. This is a
-tuning lever with real pedagogical content, not a detail.
+Still not comparable to Isaac Sim or MuJoCo in physics fidelity, and that is fine — the
+requirement was a physics-backed car on a road that can be watched, not vehicle-dynamics research.
 
 ---
 
 ## 3. Observation space
 
-Deliberately staged, because each representation teaches something different.
+MetaDrive offers two families, and the project uses both at different phases.
 
-| Phase | Observation | Shape | What it teaches |
-|---|---|---|---|
-| 1 | `Kinematics` | **Verified `(5, 5)`** — 5 vehicles × 5 features, flattens to 25 | The MDP loop with a small, fully-visible state. No perception problem. |
-| 2 | `Kinematics` + explicit capability features | ~25 + n | How state design changes what is learnable — e.g. adding signal phase |
-| 3 | `OccupancyGrid` | grid × channels | Spatial representation, CNN encoders, why structure in the input matters |
-| 4 (optional) | `GrayscaleObservation` | stacked frames | Representation learning; the VAE-then-RL pattern from `research/12` |
+### Vector observation (default) — **verified `(259,)` float32, `Box(0, 1)`**
 
-Phase 1 features are `[presence, x, y, vx, vy]` per vehicle, normalized, ego-relative (confirm
-defaults against pinned version). This is **privileged state** — the agent gets exact positions
-and velocities of nearby cars with no perception pipeline. `research/03` correctly calls this the
-largest sim-to-real gap of any modality. That penalty is irrelevant here and the speed is worth
-everything.
+Composed of ego state, navigation information, and a **240-beam LiDAR-style distance scan** of
+surrounding objects. The LiDAR beam count is configurable and 240 is more than this project needs
+early on; reducing it is a cheap way to shrink the input and speed up learning.
 
-A concept that arrives for free with this representation: it is a **fixed-size window over a
-variable number of vehicles**, so `presence` flags padding. That is a real design pattern with
-real consequences (what happens when a sixth car matters?) and worth confronting rather than
-hiding.
+### Image observation — **verified `(360, 640, 3, 3)` uint8 + `(19,)` state**
+
+An RGB camera mounted on the vehicle, returned as a dict with `image` and `state` keys. The
+trailing dimension is a **stack of the 3 most recent frames** — MetaDrive's built-in answer to
+partial observability, since a single frame carries no velocity information. The accompanying
+state vector drops to 19 dimensions because the LiDAR scan is replaced by pixels.
+
+`image_on_cuda=True` keeps rendered frames in GPU memory as tensors instead of round-tripping to
+CPU, reported as a large speedup. **Not to be enabled without checking GPU headroom first**, given
+the shared card.
+
+### Staging
+
+| Phase | Observation | Why |
+|---|---|---|
+| 0–2 | Vector, with LiDAR beams reduced | Small and fast; the MDP loop and algorithm correctness are what is being learned, not perception |
+| 3 | Vector, full | Continuous control with richer surroundings |
+| 4 | Vector + explicit capability features (e.g. signal phase) | How state design changes what is learnable |
+| 5 (optional) | Image | Representation learning; the VAE-then-RL pattern from `research/12` |
 
 ---
 
 ## 4. Action space
 
-| Phase | Action type | Space | Why |
-|---|---|---|---|
-| 1–2 | `DiscreteMetaAction` | **Verified `Discrete(5)`**: `LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER` | Enables value-based methods (DQN family). Simple credit assignment. |
-| 3+ | `ContinuousAction` | `[acceleration, steering]`, each in `[-1, 1]` | Enables policy-gradient and actor-critic methods (PPO, SAC). |
+**Verified: `Box(-1, 1, (2,))` — continuous `[steering, acceleration]`. MetaDrive is
+continuous-only.**
 
-**The distinction that matters pedagogically**: under `DiscreteMetaAction`, highway-env runs its
-own low-level controller to execute the chosen maneuver. The agent is learning *decisions*, and
-the control problem is being solved for it. Under `ContinuousAction`, the agent learns actual
-control. Moving between them is not a formatting change — it changes what problem is being solved,
-and it is the reason SAC and PPO become necessary rather than optional.
+This is a real consequence of the simulator change and needs planning for:
+
+> **DQN needs discrete actions, and MetaDrive does not provide them.** Phase 1 requires a
+> discretizing wrapper — a small `gymnasium.ActionWrapper` mapping a handful of discrete choices
+> (steer left / straight / right × accelerate / coast / brake) onto continuous pairs.
+
+highway-env supplied `DiscreteMetaAction` for free; MetaDrive does not. The wrapper is perhaps
+thirty lines, and writing it is itself instructive — it makes the discrete/continuous distinction
+concrete rather than a configuration flag. But it is a new component, and per the operating
+principle it must be verified **before** being used to validate a hand-written DQN, or there
+would be two unknowns at once. It gets tested by running SB3's DQN through it.
+
+| Phase | Action | Notes |
+|---|---|---|
+| 1–2 | Discretized via wrapper | Needed for DQN. Wrapper validated with SB3 first. |
+| 3+ | Native continuous | What SAC and PPO-continuous are for |
 
 ---
 
 ## 5. Reward design
 
-The area with the highest risk of silent failure, and the one where prior experience with reward
-hacking transfers directly. Method comes from `research/04`.
+Unchanged in method by the simulator switch — see `research/04`. The method matters more than the
+platform.
 
-### The core reward is sparse and outcome-only
+### Core reward is sparse and outcome-only
 
 ```
-+1   on reaching the destination / completing the route
++1   on reaching the destination
 -1   on collision
  0   otherwise, including timeout
 ```
 
-Timeout scores `0` rather than negative **on purpose**, so that "did nothing" can never rank below
+Timeout scores `0` rather than negative **on purpose**, so "did nothing" can never rank below
 "crashed."
 
 ### Density comes only from potential-based shaping
@@ -181,101 +181,83 @@ F(s, s′) = γ · Φ(s′) − Φ(s)
 ```
 
 with `Φ(s)` = negative remaining route distance. Ng, Harada & Russell (1999) proved this cannot
-change the optimal policy. The caveat that matters: **PBRS preserves whatever the core reward
-already prefers**, so it cannot rescue a broken core reward. Validate the core first, then densify.
+change the optimal policy. It cannot rescue a broken core reward, so the core is validated first.
 
-### Reward correctness is enforced by tests, not by watching training
+### Correctness is enforced by tests
 
-Of the papers in the Knox et al. audit that disclosed their process, **all 8 used trial-and-error
-tuning against observed behavior**, and that is precisely what let 7 of 9 published reward
-functions rank a mid-drive crash above safe idling.
+Preference ordering becomes a `pytest` suite over hand-constructed trajectory pairs, run before
+training. Of the papers in the Knox et al. audit that disclosed their process, **all 8 tuned by
+trial and error against observed behaviour** — which is what let 7 of 9 published reward functions
+rank a mid-drive crash above safe idling.
 
-So preference ordering becomes a **`pytest` suite**: construct trajectory pairs by hand, assert
-the reward function ranks them correctly, run it in CI before any training. This is cheap, needs
-no training, and would have caught every failure in that audit.
+### The Phase 0 exercise, now against MetaDrive's reward
 
-### A concrete Phase 1 exercise, and a prediction to test rather than assume
+MetaDrive ships its own reward: a driving-progress term along the lane, a speed term, and
+terminal penalties for collision and leaving the road. **Verified**: 88 steps of mild throttle
+with no steering produced a total reward of 49.25 while ending `out_of_road=True` — that is a
+substantial positive return for an episode that failed.
 
-highway-env ships its own default reward for `highway-v0`, roughly a weighted sum of a collision
-term, a right-lane term, and a high-speed term, normalized to `[0, 1]` (exact coefficients to be
-read from the pinned source, not trusted from memory).
+That single observation is the whole motivation for the exercise. The first real task is to read
+the reward function out of the installed source and run the trajectory-pair test on it: **does it
+prefer a fast run that crashes over a slow one that survives?** The answer is interesting either
+way, and it makes the dossier's central warning concrete on code actually being used.
 
-Note the structure: with normalization to `[0, 1]`, a crash scores `0` and **every non-crash step
-scores positive**. A crash is punished only by the future reward it forfeits. That is exactly the
-shape Knox et al. identify as dangerous.
+### Safety as cost, not reward
 
-**Prediction, to be tested and not assumed**: there exists a speed setting at which a fast policy
-that crashes partway through outscores a slow policy that survives the full episode. Running the
-trajectory-pair test against highway-env's *own default reward* is the first real exercise of the
-project — it makes the dossier's central warning concrete on the actual code, and the answer is
-interesting whichever way it comes out.
-
-### Safety tracked as cost, not folded into reward
-
-Following MetaDrive's safe-RL convention (`research/05`): collisions and off-road events are logged
-as a **separate cost signal**, never silently summed into the reward scalar. Reward-only reporting
-can hide a safety regression behind a better score.
+MetaDrive has a **native safe-RL cost signal** (`cost = 1` on collision or off-road), tracked
+separately from reward. This is the convention `research/05` recommends, available without having
+to build it.
 
 ---
 
-## 6. Algorithms: what gets implemented, in what order, and why
+## 6. Algorithms: what gets implemented, in what order
 
 Each is written by hand, then validated against Stable-Baselines3 on identical environment, seeds,
-and hyperparameters. "Correct" means **the learning curves match within seed noise** — not "it
-learns something."
+and hyperparameters. "Correct" means **learning curves match within seed noise**.
 
 | # | Algorithm | Action space | Concepts it forces |
 |---|---|---|---|
-| 0 | Random + scripted heuristic baseline | discrete | Env API, evaluation harness, what the floor actually is |
-| 1 | Tabular Q-learning / SARSA (toy env) | discrete | Bellman equations, TD error, bootstrapping, on- vs off-policy, ε-greedy |
-| 2 | **DQN** | discrete | Function approximation, replay buffer, target networks, the deadly triad |
-| 3 | Double DQN, Dueling DQN | discrete | Q-value overestimation bias; value/advantage decomposition |
+| 0 | Random + scripted baseline | — | Env API, evaluation harness, where the floor is |
+| 1 | Tabular Q-learning / SARSA (toy gridworld) | discrete | Bellman equations, TD error, on- vs off-policy, ε-greedy |
+| 2 | **DQN** | discrete (via wrapper) | Function approximation, replay buffer, target networks, deadly triad |
+| 3 | Double DQN, Dueling DQN | discrete | Overestimation bias; value/advantage decomposition |
 | 4 | REINFORCE | discrete | Policy gradient theorem, Monte Carlo returns, variance |
 | 5 | Actor-Critic / A2C | discrete | Baselines, advantage, bias–variance tradeoff |
-| 6 | **PPO** | both | GAE, importance sampling, trust regions, the clipped surrogate objective |
-| 7 | **SAC** | continuous | Max-entropy RL, twin critics, reparameterization, off-policy continuous control |
-| 8 (optional) | Model-based / TD-MPC2 tie-in | continuous | World models, planning — connects to prior SO-101 work (`research/08`) |
+| 6 | **PPO** | both | GAE, importance sampling, clipped surrogate objective |
+| 7 | **SAC** | continuous | Max-entropy RL, twin critics, reparameterization |
+| 8 (optional) | Model-based / TD-MPC2 | continuous | World models, planning — connects to prior SO-101 work |
 
-Step 1 is a short, deliberate detour into a toy environment rather than highway-env. Tabular
-methods need a small discrete state space, and forcing highway-env into one would teach less than
-a gridworld does in an afternoon. It exists so that Bellman backups are something seen working
-directly, before they are buried inside a neural network.
-
-**The highest-value learning exercise in the whole list**: once DQN works, remove the replay
-buffer, then restore it and remove the target network, and watch training destabilize each time.
-Reading why they are necessary conveys much less than seeing the failure.
+**The highest-value exercise in the list**: once DQN works, remove the replay buffer, then restore
+it and remove the target network, and watch training destabilize each time.
 
 ### Policy representations encountered
 
-- **ε-greedy over Q-values** — implicit policy, value-based methods
-- **Categorical** — discrete stochastic policy, policy-gradient methods
-- **Squashed Gaussian** (`tanh`-transformed) — continuous stochastic policy, SAC
-- **Deterministic** — evaluation-time behavior, and DDPG-family if reached
-
-Networks stay small on purpose: 2–3 hidden layers of 64–256 units for vector observations. Model
-capacity is not the bottleneck at this scale, and small networks train fast enough to iterate.
+ε-greedy over Q-values (value-based), categorical (discrete policy gradient), squashed Gaussian
+(SAC), deterministic (evaluation). Networks stay small — 2–3 hidden layers of 64–256 units for
+vector observations. Capacity is not the bottleneck at this scale.
 
 ---
 
 ## 7. Libraries
 
-| Library | Role | Notes |
+| Library | Role | Version |
 |---|---|---|
-| `gymnasium` | Environment API contract | The interface everything speaks |
-| `highway-env` | Simulator | Pinned; source read directly, not just used |
-| `torch` | Autodiff, NN, optimizers | CUDA build matched to the workstation's driver |
-| `numpy` | Numerics | |
-| `stable-baselines3` | **Correctness oracle only** | Never the implementation. Reference curves to validate against. |
-| `sb3-contrib` / `rl-baselines3-zoo` | Known-good hyperparameters | `research/07`: fastest way to a credible baseline |
-| `pytest` | Reward and component tests | Where the trajectory-pair preference tests live |
-| `tensorboard` | Metric logging | Local, no account, sufficient at this scale |
-| `imageio` / `moviepy` | Episode video capture | Output goes to `runs/<id>/videos`, moved by `scp` |
-| `pyyaml` / `omegaconf` | Config | Deliberately lightweight; Hydra is overkill here |
+| `metadrive-simulator` | Simulator | **0.4.3** |
+| `panda3d` | 3D rendering (via MetaDrive) | 1.10.13 |
+| `gymnasium` | Environment API contract | 1.3.0 |
+| `torch` | Autodiff, NN, optimizers | 2.11.0+cu128 |
+| `numpy` | Numerics | 2.4.6 |
+| `stable-baselines3` | **Correctness oracle only** | 2.9.0 |
+| `pytest` | Reward and component tests | 9.1.1 |
+| `tensorboard` | Metric logging | 2.21.0 |
+| `imageio` / `imageio-ffmpeg` | Episode video capture | 2.37.4 |
 
-Deliberately **not** used: Ray/RLlib (distributed complexity with no payoff at this scale, and
-`research/08` notes its PPO underperformed reference implementations in a controlled comparison),
-CleanRL as a dependency (it is a *reading* resource — the point is writing these, not importing
-someone else's single-file version).
+Deliberately **not** used: Ray/RLlib (distributed complexity with no payoff here), CleanRL as a
+dependency (a *reading* resource — the point is writing these), CARLA.
+
+**Note**: installing MetaDrive replaced `pygame-ce` with `pygame`, which may break highway-env's
+renderer. Irrelevant since highway-env is no longer the project environment, but it is why
+highway-env should not be assumed still functional in this environment.
 
 ---
 
@@ -283,41 +265,54 @@ someone else's single-file version).
 
 ### Evaluation harness, kept strictly separate from reward
 
-Training reward is the optimization signal. It is **not** the measure of success — that
-conflation is how reward hacking goes unnoticed. Evaluation is separate, deterministic, and run
-on **held-out seeds never used for training**:
+Training reward is the optimization signal, **not** the measure of success — conflating them is
+how reward hacking goes unnoticed. Evaluation is separate, deterministic, and run on **held-out
+seeds never used for training**: success rate (route completed without collision), collision rate,
+off-road rate, mean episode length and distance, and cost reported separately.
 
-- success rate (route completed without collision)
-- collision rate
-- off-road rate
-- mean episode length and distance travelled
-- cost (cumulative constraint violations), reported separately
+MetaDrive's `info` dict supplies `arrive_dest`, `crash`, `out_of_road`, and `velocity` directly —
+**verified present** — so these metrics come from the simulator rather than being inferred.
 
-Metric definitions are borrowed rather than invented, per `research/05`.
+### The fast fallback environment
+
+The operating principle needs an environment where a hand-written algorithm can be proven correct
+with instant feedback. MetaDrive at ~300 FPS is good but not instant, and a driving task has many
+ways to fail that have nothing to do with algorithm correctness.
+
+**Classic control fills this role**: CartPole for DQN and discrete PPO, Pendulum for SAC. They run
+in seconds, SB3's reference results on them are exhaustively validated, and if a hand-written PPO
+fails on CartPole the bug is definitely in the algorithm. This replaces the role highway-env would
+have played, without maintaining a second driving simulator.
 
 ### Seeding and multiple runs
 
 RL results have enormous seed variance. **A single-seed result is noise, not a finding.** Every
-reported claim runs ≥3 seeds, ideally 5, with variance shown rather than only the mean. This is
-also the criterion for "my DQN matches SB3's DQN" — overlapping bands across seeds, not one lucky
-curve.
+reported claim runs ≥3 seeds, ideally 5, with variance shown. This is also the criterion for "my
+DQN matches SB3's" — overlapping bands, not one lucky curve.
 
-Environment seeds, action-sampling seeds, and network-init seeds are all set and recorded in
-`runs/<id>/config.yaml`.
+MetaDrive adds a second axis: `num_scenarios` and `start_seed` control which procedurally
+generated maps appear. **Training and evaluation must use disjoint scenario ranges**, or
+"generalization" is being measured on maps already trained on.
+
+### Rendering discipline
+
+Three modes, at different costs — details and the measured GPU figures are in
+`docs/01_infrastructure_and_workflow.md`:
+
+- **no rendering** — training default, no GPU
+- **top-down** — CPU schematic, for debugging
+- **3D camera** — ~1.6 GB GPU, for review videos only, never during routine training
+
+A blank render does not raise an exception. Any change to the rendering path is checked with a
+pixel statistic, never file existence (D-018).
 
 ### Config and reproducibility
 
 Every run writes its fully-resolved config and the git SHA it launched from. A result that cannot
 be traced to exact code and exact config is not a result.
 
-### Vectorized environments
-
-Not needed in Phase 1, but worth knowing early: running N environments in parallel is the main
-throughput lever for on-policy methods like PPO, and it changes how batches are shaped. Introduce
-it when PPO arrives, not before — it complicates the data path and Phase 1 does not need it.
-
 ### Hyperparameters
 
-Not a place to be creative early. Start from `rl-baselines3-zoo`'s tuned values for the same
-algorithm/environment family so that when a hand-written implementation fails to learn, the
-hyperparameters are not a competing explanation. Tune later, deliberately, one thing at a time.
+Start from `rl-baselines3-zoo` values for the same algorithm family, so that when a hand-written
+implementation fails to learn, hyperparameters are not a competing explanation. Tune later,
+deliberately, one thing at a time.

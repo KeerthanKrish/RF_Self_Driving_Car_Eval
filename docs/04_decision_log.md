@@ -41,8 +41,11 @@ predecessor is worse than no curriculum — so every phase gets a competence gat
 
 ---
 
-### D-004 — Simulator is highway-env
+### D-004 — Simulator is highway-env — ⚠️ SUPERSEDED BY D-019
 **Date**: 2026-09-10
+**Status**: **Superseded the same day by D-019**, which moves the project to MetaDrive after a
+physics-based, visually real environment became a stated requirement. Retained for the reasoning
+trail; do not act on it.
 **Decision**: highway-env, with MetaDrive held as fallback.
 **Rationale**: Gymnasium-native, pure Python and readable end to end, CPU-fast, and per
 `research/09` the only surveyed platform exposing literal IDM/MOBIL constants rather than an
@@ -108,9 +111,13 @@ directories are timestamped and never reused, per the collision-proofing require
 **Date**: 2026-09-10
 **Decision**: Default to CPU through Phase 1–2; revisit when observations become images or many
 parallel environments are needed.
-**Rationale**: ~25-dimensional observations through small MLPs are dominated by kernel-launch
-overhead; environment stepping in highway-env is pure-Python and CPU-bound. GPU would likely be
-slower.
+**Rationale**: small observation vectors through small MLPs are dominated by kernel-launch
+overhead, and environment stepping is CPU-bound. GPU would likely be slower.
+**Still holds under D-019, with one addition**: MetaDrive's physics runs in Bullet on CPU and its
+vector observation is 259-dimensional — still far too small for the GPU to help training. What
+changed is that MetaDrive's **3D rendering** does use the GPU (~1.6 GB measured), so the card is
+now needed for review videos and any future image-observation work, just not for routine
+training.
 **Consequence**: Also reduces contention on a workstation shared with other projects. Recorded so
 that slow Phase 1 training is not misdiagnosed as a GPU configuration problem.
 
@@ -250,3 +257,77 @@ The first attempt's PNGs were 342 bytes, which is a perfectly reasonable size fo
 file size is not evidence of content.
 **Also settled**: highway-env is pygame 2D with no physics engine — not Isaac Sim, MuJoCo, or
 Gazebo. Comparison table added to `docs/02_technical_design.md`.
+**Superseded by D-019**, which replaces highway-env entirely. The rendering discipline in this
+entry still stands and carried over.
+
+---
+
+### D-019 — Simulator changed from highway-env to MetaDrive
+**Date**: 2026-09-10
+**Supersedes**: D-004 (highway-env)
+
+**Decision**: MetaDrive 0.4.3 is the project environment. highway-env is retired. CARLA, Isaac
+Sim, MuJoCo, PyBullet and Gazebo were considered and rejected.
+
+**Trigger**: a requirement that had not been stated before — a physics-based engine producing a
+visually real result, so that progress can actually be watched. highway-env fails this
+categorically: no physics engine, 2D coloured rectangles. The follow-up clarification mattered
+too — realistic *vehicle* physics is **not** required, which lowers the bar considerably and is
+what rules CARLA out rather than in.
+
+**Why MetaDrive**:
+- Real Bullet rigid-body vehicle dynamics — chassis, wheels, joints under constraints. Its own
+  paper contrasts this against highway-env, which "only simulates vehicle with simple kinematic
+  model."
+- 3D rendering via Panda3D. **Verified**: a 640×360 frame with mean 145.25 and 26,322 unique
+  colours — textured road, lane markings, terrain, sky.
+- ~300 FPS versus CARLA's ~25 FPS. On a bursty schedule with multi-seed comparisons of
+  hand-written algorithms, a 12× throughput difference dominates.
+- Ships traffic lights, pedestrians and cyclists, deleting most of Phase 4's simulator work.
+- Procedural map generation, which `research/05` identifies as the one empirically validated
+  generalization lever.
+- A `pip install`, not a separate server process.
+
+**Why not the others**:
+- **CARLA**: photorealism is a non-goal. ~25 FPS, 130–170 GB, and 16 GB VRAM recommended against
+  a card already holding IsaacLab's 5.3 GB — leaving ~10.7 GB, under the 12 GB at which CARLA
+  warns the default map may not load.
+- **Isaac Sim**: already installed, so seriously evaluated. Ruled out on NVIDIA's own guidance —
+  built for "indoor robots operating in structured, controlled environments," no autonomous-
+  vehicle assets, no OpenDRIVE support, and explicitly not recommended for outdoor AV simulation.
+- **MuJoCo / PyBullet**: better physics, but no road, car, traffic, or driving environment at
+  all. Would mean weeks building a simulator instead of learning RL. Relaxing the physics
+  requirement argues *against* these, not for them — their advantage was the thing no longer
+  needed.
+
+**Verified on `dtgpu`** before committing to the change:
+
+| Check | Result |
+|---|---|
+| Headless physics | 88 steps, reward 49.25, GPU untouched |
+| Observation (vector) | `(259,)` float32 — ego, navigation, 240 LiDAR beams |
+| Observation (image) | `(360, 640, 3, 3)` uint8 + `(19,)` state — 3-frame stack |
+| Action space | `Box(-1, 1, (2,))` — **continuous only** |
+| CPU top-down render | works, GPU untouched |
+| 3D render | works, peak ~1.6 GB GPU |
+| IsaacLab disturbed? | **No** — pid 448412 at 5252 MiB, identical before and after |
+
+**Consequences**:
+1. **DQN needs a discretizing action wrapper.** MetaDrive is continuous-only; highway-env's
+   `DiscreteMetaAction` is gone. New Phase 1b builds it and validates it with SB3 *before* any
+   hand-written DQN uses it, so a failure never has two possible causes.
+2. **The fast fallback environment is now classic control**, not a second driving sim. CartPole
+   for discrete, Pendulum for continuous.
+3. **Phase 4 gets substantially easier and better.** Traffic lights and pedestrians were "must
+   build from scratch" and are now native. Remaining work shifts from simulator plumbing to
+   scenario composition, observation design, and reward validation — the parts that actually
+   teach RL.
+4. **Train/eval scenario ranges must be disjoint**, since `num_scenarios`/`start_seed` govern
+   procedural map generation. Otherwise generalization is measured on memorized maps.
+5. Installing MetaDrive replaced `pygame-ce` with `pygame`, which may have broken highway-env's
+   renderer. Not a problem, but highway-env should not be assumed functional in `rlsdc`.
+
+**Documentation caveat recorded**: the 2021 MetaDrive paper lists "no pedestrians or cyclists" as
+a limitation. That is stale — both landed in 2023, and traffic-light detection was updated in
+January 2025. Read the repository, not the paper, for current capability. `research/01` and
+`research/03` cite the paper and are therefore out of date on this point.

@@ -41,7 +41,8 @@ These are deliberately excluded. Reopening any of them is a decision to record i
   scores higher and is not.
 - **No leaderboard chasing.** Not targeting CARLA Leaderboard or nuPlan benchmark numbers.
 - **No photorealism.** Not a perception project unless perception is later chosen as a concept
-  to learn deliberately.
+  to learn deliberately. A 3D physics-backed environment *is* required (D-019) — that is about
+  being able to watch a real car on a real road, not about photorealistic sensors.
 - **No reimplementation of infrastructure.** Autodiff, physics integration, and rendering are
   taken off the shelf. The from-scratch line is drawn at RL algorithm internals.
 
@@ -78,9 +79,13 @@ failure mode is expensive.
 
 | Phase kind | Environment | Algorithm | What is being validated |
 |---|---|---|---|
-| 0 | Trusted (highway-env) | Trusted (SB3) | The harness: logging, evaluation, seeding, run layout |
-| 1 | Trusted (highway-env) | **Mine** | My algorithm implementation, against SB3's curve |
-| 2 | **Mine** (custom capabilities) | Trusted (mine, now verified) | My environment |
+| 0 | Trusted (MetaDrive) | Trusted (SB3) | The harness: logging, evaluation, seeding, run layout |
+| 1 | Trusted (classic control first, then MetaDrive) | **Mine** | My algorithm implementation, against SB3's curve |
+| 2 | **Mine** (custom scenarios and capabilities) | Trusted (mine, now verified) | My environment |
 | 3 | Mine | Mine | The actual project |
+
+The fast known-good environment is **classic control** — CartPole for discrete methods, Pendulum
+for continuous. If a hand-written PPO fails on CartPole, the bug is unambiguously in the
+algorithm, with no driving-specific confound.
 
 See `docs/03_roadmap.md` for how this maps onto concrete phases.

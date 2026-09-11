@@ -147,59 +147,79 @@ automation that runs over ssh needs it.
 |---|---|
 | python | 3.11.16 |
 | torch | 2.11.0+cu128 (CUDA 12.8) |
+| **metadrive-simulator** | **0.4.3** |
+| panda3d | 1.10.13 |
 | gymnasium | 1.3.0 |
-| highway-env | 1.12.1 |
 | stable-baselines3 | 2.9.0 |
 | numpy | 2.4.6 |
+| ~~highway-env~~ | 1.12.1 — installed but **retired** (D-019) |
 
-Also verified: `sm_120` present in `torch.cuda.get_arch_list()`, a real GPU matmul executes, and
-`highway-v0` constructs and steps with observation shape `(5, 5)` and action space `Discrete(5)`.
+Also verified: `sm_120` present in `torch.cuda.get_arch_list()` and a real GPU matmul executes.
+
+MetaDrive verified across all three rendering modes — see "Viewing the environment" below.
+
+**Note**: installing MetaDrive replaced `pygame-ce` with `pygame`. highway-env's renderer may no
+longer work in this environment. Irrelevant now that MetaDrive is the project simulator, but it
+is why highway-env should not be assumed functional here.
 
 ## An honest note on the GPU
 
-For the early phases the GPU is close to useless, and this is expected rather than a
-misconfiguration. Phase 1 works on ~25-dimensional observation vectors through small MLPs, where
-per-kernel launch overhead dominates and **CPU is frequently faster than GPU**. Environment
-stepping in highway-env is pure-Python and CPU-bound regardless.
+For the early phases the GPU is close to useless **for training**, and this is expected rather
+than a misconfiguration. Phase 1 works on a 259-dimensional observation vector through small
+MLPs, where per-kernel launch overhead dominates and **CPU is frequently faster than GPU**.
+MetaDrive's physics runs in Bullet on the CPU, so environment stepping is CPU-bound regardless.
 
-The GPU starts mattering when: observations become images (CNN encoders), models get meaningfully
-larger, or many environments run in parallel. Until then, defaulting to CPU is the right call and
-is also the polite one on a shared machine.
+The GPU does get used for **3D rendering** (~1.6 GB measured), but that is for producing review
+videos, not routine training. It starts mattering for training only when observations become
+images (CNN encoders), models grow, or many environments run in parallel.
 
-Do not read "training is slow" in Phase 1 as "the GPU isn't being used."
+Do not read "training is slow" in Phase 1 as "the GPU isn't being used." And do not leave 3D
+rendering enabled during training runs on a shared card.
 
 ## Viewing the environment
 
-highway-env renders with **pygame** — 2D, top-down, no 3D engine. It is not Isaac Sim, MuJoCo,
-or Gazebo, and there is **no physics engine at all**: the kinematic bicycle equations are
-integrated directly in Python and collisions are rectangle intersections. See
-`docs/02_technical_design.md`.
+The project uses **MetaDrive** — Panda3D for 3D rendering, Bullet for physics (D-019). The
+workstation is headless (`DISPLAY` unset), so the workflow is **render offscreen, write PNG/MP4
+into the run directory, and `scp` to the Mac to look at**. `scripts/metadrive_smoke.py` is the
+working reference for all three modes below.
 
-The workstation is headless (`DISPLAY` unset), so the workflow is **render to `rgb_array`, write
-PNG/MP4 into `runs/<id>/videos`, and `scp` to the Mac to look at**. `scripts/render_smoke.py` is
-the working reference.
+### Three rendering modes, at very different costs
 
-### Do not set `SDL_VIDEODRIVER=dummy`
+| Mode | How | GPU | Use for |
+|---|---|---|---|
+| **None** | `use_render=False` | none | **Training default.** Physics only. |
+| **Top-down** | `env.render(mode="topdown", window=False)` | none — CPU raster | Debugging: schematic view of road, ego, traffic |
+| **3D camera** | `image_observation=True` with an `RGBCamera` sensor | **~1.6 GB** | Review videos, and image-observation experiments |
 
-The obvious instinct for headless pygame is the dummy SDL video driver. On this machine it
-**silently produces all-black frames** — correct shape and dtype, zero pixels. Measured
-2026-09-10:
+Measured on `dtgpu` 2026-09-10, with IsaacLab already holding 5252 MiB:
 
-| Configuration | Result |
-|---|---|
-| `SDL_VIDEODRIVER=dummy` + `OFFSCREEN_RENDERING=1` | mean 0.00, 1 colour — **BLANK** |
-| `SDL_VIDEODRIVER=dummy` alone | mean 0.00, 1 colour — **BLANK** |
-| `OFFSCREEN_RENDERING=1` alone | mean 103.95, 7 colours — works |
-| nothing set | mean 103.95, 7 colours — works |
+- headless and top-down: GPU compute-app list **byte-identical** before and after — untouched
+- 3D: total GPU use peaked at 6990 MiB of 16311, free never below 8856 MiB, and IsaacLab's
+  process was unchanged at 5252 MiB throughout
 
-Use **`OFFSCREEN_RENDERING=1`**, highway-env's own flag, set before pygame is imported. It skips
-`pygame.display.set_mode()` and reads pixels straight off the drawing surface. Plain unset also
-happens to work here, but the explicit flag is the safer default since it never attempts to open
-a display.
+**Rule for the shared card**: 3D rendering is for producing review videos, not for routine
+training. Check `nvidia-smi` before enabling it. `image_on_cuda=True` (MetaDrive's option to keep
+frames in GPU memory) is a significant further allocation and must not be enabled without
+checking headroom first.
 
-This failure mode is nasty precisely because it does not raise — a training run would happily
-record hours of black video. Any change to the rendering path should be checked with a pixel
-statistic (`frame.mean()`, unique colour count), not by confirming a file was written.
+Note that 3D frames do **not** come from `env.render()`. MetaDrive returns them through a camera
+sensor attached to the vehicle, inside the observation dict as `obs["image"]`, shaped
+`(H, W, C, T)` where `T` is a stack of the most recent frames — newest last.
+
+### A blank render does not raise an exception
+
+Learned the hard way while this project still used highway-env (D-018): the conventional headless
+fix `SDL_VIDEODRIVER=dummy` produced **all-black frames** with correct shape and dtype and no
+error. The resulting PNGs were 342 bytes — a perfectly plausible size for a real image.
+
+The lesson generalizes beyond that one flag and still applies to MetaDrive:
+
+> **Validate any rendering change with a pixel statistic** — `frame.mean()` and unique colour
+> count — never with file existence or file size. A training run will happily record hours of
+> black video without complaining.
+
+For reference, healthy values measured here: MetaDrive top-down `mean=253.95`, 25 colours;
+MetaDrive 3D `mean=145.25`, 26,322 colours. Blank is `mean=0.00`, 1 colour.
 
 ## File sync
 

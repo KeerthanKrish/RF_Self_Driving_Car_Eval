@@ -5,6 +5,11 @@ capability. The driving task is the teaching device; the goal is the RL.
 
 **Simulation only. No real hardware. Not aiming for a flawless agent.**
 
+Environment: [MetaDrive](https://github.com/metadriverse/metadrive) — 3D rendering via Panda3D,
+Bullet rigid-body vehicle physics, procedurally generated roads, native traffic lights and
+pedestrians. Algorithms are written by hand; Stable-Baselines3 is the correctness oracle, never
+the implementation.
+
 ## Start here
 
 | Document | What it is |
