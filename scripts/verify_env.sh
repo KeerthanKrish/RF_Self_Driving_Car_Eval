@@ -19,8 +19,9 @@ import numpy, gymnasium, torch
 print(f"numpy            {numpy.__version__}")
 print(f"gymnasium        {gymnasium.__version__}")
 
-import highway_env
-print(f"highway-env      {highway_env.__version__}")
+import importlib.metadata
+import metadrive  # noqa: F401 (import confirms it's actually importable)
+print(f"metadrive        {importlib.metadata.version('metadrive-simulator')}")
 
 import stable_baselines3
 print(f"stable-baselines3 {stable_baselines3.__version__}")
@@ -54,12 +55,17 @@ else:
         print(f"FAIL: GPU op raised: {exc}")
         ok = False
 
-# Environment smoke test: does highway-env actually construct and step?
-env = gymnasium.make("highway-v0")
-obs, info = env.reset(seed=0)
-obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
-print(f"highway-v0       OK  obs{obs.shape}  action_space={env.action_space}")
-env.close()
+# Environment smoke test: does MetaDrive actually construct and step,
+# headless, with no rendering? (D-019 replaced highway-env with MetaDrive.)
+from metadrive.envs.metadrive_env import MetaDriveEnv
+
+env = MetaDriveEnv(dict(use_render=False, num_scenarios=1, start_seed=0, log_level=50))
+try:
+    obs, info = env.reset(seed=0)
+    obs, reward, terminated, truncated, info = env.step(env.action_space.sample())
+    print(f"MetaDrive        OK  obs{obs.shape}  action_space={env.action_space}")
+finally:
+    env.close()
 
 print()
 print("ALL CHECKS PASSED" if ok else "CHECKS FAILED -- see FAIL lines above")

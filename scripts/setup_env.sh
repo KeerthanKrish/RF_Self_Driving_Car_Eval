@@ -51,7 +51,7 @@ pip install torch --index-url "${TORCH_INDEX}"
 echo "[setup] installing project dependencies"
 pip install \
     "gymnasium" \
-    "highway-env" \
+    "metadrive-simulator" \
     "stable-baselines3" \
     "tensorboard" \
     "pytest" \
@@ -60,5 +60,11 @@ pip install \
     "matplotlib" \
     "imageio" \
     "imageio-ffmpeg"
+
+# highway-env is retired (D-019, superseded by MetaDrive) but left installable
+# here for now since research/ still references it; not required for anything
+# in scripts/. Installing metadrive-simulator replaces pygame-ce with pygame,
+# which may affect highway-env's renderer -- see docs/01_infrastructure_and_workflow.md.
+pip install "highway-env"
 
 echo "[setup] done. verify with: bash scripts/verify_env.sh"

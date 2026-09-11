@@ -374,3 +374,29 @@ and returns `1.0` on out-of-road, vehicle crash, or object crash (`out_of_road_c
 cumulative `episode_cost` and different defaults (higher `accident_prob`, `cost_to_reward=False`
 so cost stays out of the reward number by default) on top of the same function. Confirms the
 earlier claim in `docs/02_technical_design.md`; no correction needed.
+
+---
+
+### D-021 — Closed two known reproducibility gaps: `setup_env.sh` and `verify_env.sh`
+**Date**: 2026-09-11
+**Context**: since D-019, `metadrive-simulator` had only ever been installed ad hoc, and
+`verify_env.sh` still smoke-tested the retired `highway-v0`. Both were flagged as gaps at the
+time but deferred. Folded them back in while touching this area of the project:
+
+- `setup_env.sh` now installs `metadrive-simulator` as a first-class dependency. `highway-env`
+  is still installed after it (some of `research/` still references it, nothing in `scripts/`
+  needs it) but is clearly commented as retired per D-019.
+- `verify_env.sh` now constructs `MetaDriveEnv` headless and steps it, instead of `highway-v0`.
+
+**Verified by actually running it** on `dtgpu`, not just editing and assuming: re-ran end to end,
+including the GPU matmul check. Caught two real mistakes in the process — `metadrive.__version__`
+doesn't exist (must use `importlib.metadata.version("metadrive-simulator")`), and the first fix
+attempt (`metadrive.version`) printed a module object, not a string, since `metadrive/version.py`
+is a submodule, not an attribute. Output after the real fix:
+
+```
+metadrive        0.4.3
+...
+MetaDrive        OK  obs(259,)  action_space=Box(-1.0, 1.0, (2,), float32)
+ALL CHECKS PASSED
+```
