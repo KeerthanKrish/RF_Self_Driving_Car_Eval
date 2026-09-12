@@ -508,3 +508,40 @@ reproduced by an actual trained policy instead. Run: `runs/20260911-151809_sb3pp
 **Consequence**: this is now the concrete, first-hand motivating case for the reward-shaping work
 that comes right after the harness is finished — not a hypothetical to design around, a measured
 failure mode in this exact environment with these exact default weights.
+
+---
+
+### D-025 — Phase 0 harness complete: multi-seed variance plotting
+**Date**: 2026-09-11
+**Scope decision**: built the *final-evaluation-across-seeds* version, not a training-curve-with-
+shaded-band-over-time version. The latter needs periodic evaluation checkpoints during training
+(added complexity, added compute cost) and is deferred to Phase 1, when there are actually two
+algorithms (hand-written DQN vs. SB3's) to compare that way — the exact case
+`docs/02_technical_design.md` describes as "overlapping bands, not one lucky curve." Building
+that machinery now, with nothing yet to validate it against, would mean guessing at a design.
+
+**What was built**:
+- `--seed` added to `scripts/baseline_random.py` and `scripts/sb3_smoke.py` (previously hardcoded
+  module constants). Run directory tags now carry the seed (e.g. `..._baseline-seed2`).
+- `rlsdc/plotting.py`: `summarize_run()` re-derives the same summary stats as
+  `rlsdc.evaluate.summarize()` but from a finished run's `metrics.csv` on disk (the process that
+  produced it has already exited, so there's no `EpisodeResult` list to reuse). `plot_seed_variance()`
+  takes N run directories, plots each metric's per-seed value plus mean ± 1 std, and writes
+  `seed_variance.png` + `summary.csv` (full per-seed numbers, not just the picture) +
+  `sources.txt` (which run directories went in — the plotting equivalent of `git_sha.txt`).
+- `scripts/plot_multi_seed.py` — the "second command" in Phase 0's done-when bar: takes a glob
+  pattern, finds matching run directories, calls the plotting function.
+
+**Verified on `dtgpu`**, not just imported: ran the random baseline 3 times (seeds 0/1/2, `nice
+-n 19`, ~8 minutes total, no training involved so trivially low CPU/GPU impact), then ran
+`plot_multi_seed.py` against the 3 resulting run directories. Confirmed `summary.csv`'s numbers
+match each run's own printed output exactly, and visually confirmed the plot (pulled to the Mac,
+then deleted locally after review per the no-artifacts-on-the-Mac rule) shows 3 correctly-plotted
+points and a correct mean/std diamond per metric. Cross-seed results for the random baseline are
+themselves a small finding: off-road rate (24–26%), return (9.18–9.41), and route completion
+(4.2–4.3%) all vary only slightly across seeds — this policy's behavior is not seed-sensitive,
+which makes sense since it isn't learning anything the seed could meaningfully affect.
+
+**Phase 0 is now done** per its own bar: one command launches a run (any existing script,
+`--seed` optional), a second command (`plot_multi_seed.py`) produces a multi-seed evaluation plot
+with variance shown, from the artifacts each run already wrote.

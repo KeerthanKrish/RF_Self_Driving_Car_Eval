@@ -56,10 +56,14 @@ at a time.
   already showed 88 steps of throttle-with-no-steering earning +49.25 while ending
   `out_of_road=True` — a large positive return for a failed episode.
 - Evaluation harness working: held-out seeds, deterministic rollouts, metrics separate from reward
-- Multi-seed runs and variance plotting working
+- Multi-seed runs and variance plotting working (`--seed` on each script, `rlsdc.plotting` +
+  `scripts/plot_multi_seed.py`) — verified on 3 seeds of the random baseline. Deliberately the
+  *final-evaluation-across-seeds* version, not a training-curve-with-shaded-band-over-time
+  version — the latter needs periodic eval checkpoints during training and is deferred to
+  Phase 1, when there are two algorithms to actually compare that way — see D-025 *(done)*
 
 **Done when**: a single command launches a run, and a second command produces a multi-seed
-evaluation plot with variance bands from the artifacts it wrote.
+evaluation plot with variance bands from the artifacts it wrote. **✅ Phase 0 complete.**
 
 **RL concepts**: the Gymnasium contract (`reset`, `step`, `terminated` vs `truncated`), episodes,
 returns, discounting, why evaluation must be separate from training.

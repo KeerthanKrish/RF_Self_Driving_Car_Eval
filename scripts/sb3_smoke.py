@@ -24,8 +24,8 @@ lower-priority than other work already running on this shared workstation:
   - meant to be launched under `nice -n 19` (see the run command below), so
     the OS scheduler always prefers other processes when there's contention.
 
-Usage:  nice -n 19 python scripts/sb3_smoke.py [total_timesteps]
-        (default total_timesteps: 100000)
+Usage:  nice -n 19 python scripts/sb3_smoke.py [--timesteps N] [--seed N]
+        (default timesteps: 100000, default seed: 0)
 """
 
 import os
@@ -36,7 +36,7 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", "2")
 os.environ.setdefault("MKL_NUM_THREADS", "2")
 
-import sys
+import argparse
 
 import torch
 
@@ -49,9 +49,7 @@ from rlsdc import scenarios
 from rlsdc.artifacts import RunDir
 from rlsdc.evaluate import evaluate_policy, summarize
 
-TOTAL_TIMESTEPS = int(sys.argv[1]) if len(sys.argv) > 1 else 100_000
 ENV_CONFIG = dict(traffic_density=0.1)
-SEED = 0
 
 
 def make_train_env():
@@ -69,29 +67,39 @@ def make_train_env():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--timesteps", type=int, default=100_000)
+    parser.add_argument("--seed", type=int, default=0,
+                         help="algorithm seed (weight init, exploration) -- vary across runs "
+                              "for multi-seed comparisons; the environment's train scenario "
+                              "range is unaffected by this")
+    args = parser.parse_args()
+    total_timesteps = args.timesteps
+    seed = args.seed
+
     config = dict(
         algo="sb3_ppo",
         env="metadrive",
-        seed=SEED,
-        total_timesteps=TOTAL_TIMESTEPS,
+        seed=seed,
+        total_timesteps=total_timesteps,
         env_config=ENV_CONFIG,
         device="cpu",
         n_envs=1,
         purpose="Phase 0 harness correctness oracle -- not a real experiment",
     )
 
-    with RunDir(algo="sb3ppo", env="metadrive", tag="smoke", config=config) as run:
+    with RunDir(algo="sb3ppo", env="metadrive", tag=f"smoke-seed{seed}", config=config) as run:
         env = make_train_env()
         try:
             model = PPO(
                 "MlpPolicy",
                 env,
                 device="cpu",
-                seed=SEED,
+                seed=seed,
                 verbose=1,
             )
-            print(f"[sb3_smoke] training for {TOTAL_TIMESTEPS} timesteps, device=cpu, n_envs=1")
-            model.learn(total_timesteps=TOTAL_TIMESTEPS)
+            print(f"[sb3_smoke] training for {total_timesteps} timesteps, device=cpu, n_envs=1, seed={seed}")
+            model.learn(total_timesteps=total_timesteps)
         finally:
             env.close()
 

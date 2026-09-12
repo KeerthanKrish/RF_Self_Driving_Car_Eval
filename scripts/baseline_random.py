@@ -8,23 +8,30 @@ Purpose:
      end-to-end, on a policy simple enough that nothing about the *policy*
      can be the explanation for a surprising number.
 
-Usage: python scripts/baseline_random.py
+Usage: python scripts/baseline_random.py [--seed N]
 """
+
+import argparse
 
 import numpy as np
 
 from rlsdc.artifacts import RunDir
 from rlsdc.evaluate import evaluate_policy, summarize
 
-POLICY_SEED = 0
 ENV_CONFIG = dict(traffic_density=0.1)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=0,
+                         help="policy RNG seed -- vary this across runs for multi-seed comparisons")
+    args = parser.parse_args()
+    policy_seed = args.seed
+
     # Seeded once, at the top -- this makes even a "random" policy's
     # performance on this particular run reproducible, rather than a fresh
     # unseeded draw producing a different number every invocation.
-    rng = np.random.default_rng(POLICY_SEED)
+    rng = np.random.default_rng(policy_seed)
 
     def random_policy(obs):
         # MetaDrive's action space is Box(-1, 1, (2,)) -- steering,
@@ -36,11 +43,11 @@ def main():
     config = dict(
         algo="random",
         env="metadrive",
-        policy_seed=POLICY_SEED,
+        policy_seed=policy_seed,
         env_config=ENV_CONFIG,
     )
 
-    with RunDir(algo="random", env="metadrive", tag="baseline", config=config) as run:
+    with RunDir(algo="random", env="metadrive", tag=f"baseline-seed{policy_seed}", config=config) as run:
         results = evaluate_policy(random_policy, env_config=ENV_CONFIG)
 
         for r in results:
